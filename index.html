@@ -1,0 +1,134 @@
+<!doctype html>
+<html lang="en">
+<head>
+<meta charset="utf-8">
+<meta name="viewport" content="width=device-width, initial-scale=1, maximum-scale=1, user-scalable=no, viewport-fit=cover">
+<meta name="apple-mobile-web-app-capable" content="yes">
+<meta name="apple-mobile-web-app-status-bar-style" content="default">
+<title>NoteStaffer</title>
+<link rel="preconnect" href="https://fonts.googleapis.com">
+<link rel="preconnect" href="https://fonts.gstatic.com" crossorigin>
+<link href="https://fonts.googleapis.com/css2?family=Geist:wght@400;500;600&family=Noto+Music&display=swap" rel="stylesheet">
+<link rel="stylesheet" href="style.css?v=3">
+</head>
+<body>
+<header class="bar">
+  <span class="mark">NoteStaffer</span>
+  <div class="seg" id="modeSeg" role="group" aria-label="What to practise">
+    <button data-mode="notes">Notes</button>
+    <button data-mode="intervals">Intervals</button>
+    <button data-mode="chords">Chords</button>
+    <button data-mode="ext">Extended</button>
+  </div>
+  <div class="seg" id="clefSeg" role="group" aria-label="Staff">
+    <button data-clef="t">Treble</button>
+    <button data-clef="b">Bass</button>
+    <button data-clef="g">Both</button>
+  </div>
+  <span class="spacer"></span>
+  <div class="user">
+    <button class="icon user-btn" id="userBtn" aria-haspopup="menu" aria-expanded="false" title="Switch user"><span class="avatar" aria-hidden="true"></span><span id="userName">Me</span><svg width="10" height="10" viewBox="0 0 10 10" aria-hidden="true"><path d="M2 3.5 5 6.5 8 3.5" fill="none" stroke="currentColor" stroke-width="1.4" stroke-linecap="round" stroke-linejoin="round"/></svg></button>
+    <div class="menu" id="userMenu" role="menu" hidden></div>
+  </div>
+  <button class="icon" id="indexBtn" aria-label="Index of all sets" title="Index"><svg class="ico" viewBox="0 0 20 20" width="18" height="18" aria-hidden="true"><rect x="3" y="3" width="5.5" height="5.5" rx="1.5"/><rect x="11.5" y="3" width="5.5" height="5.5" rx="1.5"/><rect x="3" y="11.5" width="5.5" height="5.5" rx="1.5"/><rect x="11.5" y="11.5" width="5.5" height="5.5" rx="1.5"/></svg><span class="lbl">Index</span></button>
+  <button class="icon" id="statsBtn" aria-label="Progress" title="Progress"><svg class="ico" viewBox="0 0 20 20" width="18" height="18" aria-hidden="true"><path d="M4 16V10M10 16V4M16 16v-8"/></svg><span class="lbl">Progress</span></button>
+  <button class="icon" id="setBtn" aria-label="Settings" title="Settings"><svg class="ico" viewBox="0 0 20 20" width="18" height="18" aria-hidden="true"><circle cx="10" cy="10" r="2.6"/><path d="M10 2.8v2.1M10 15.1v2.1M17.2 10h-2.1M4.9 10H2.8M15.1 4.9l-1.5 1.5M6.4 13.6l-1.5 1.5M15.1 15.1l-1.5-1.5M6.4 6.4 4.9 4.9"/></svg><span class="lbl">Settings</span></button>
+</header>
+
+<main class="stage">
+  <div class="staff" id="staff"></div>
+  <div class="feedback">
+    <p class="msg" id="msg">&nbsp;</p>
+    <p class="sub" id="sub">&nbsp;</p>
+    <div class="trace" id="trace" aria-hidden="true"></div>
+    <p class="next" id="next"></p>
+    <p class="today" id="today"></p>
+  </div>
+</main>
+
+<div class="kbwrap" id="kbwrap"><div class="kb" id="kb"></div></div>
+
+<dialog id="statsDlg">
+  <form method="dialog" class="dlg">
+    <div class="dlg-head"><h2>Progress</h2><button class="close" value="close" aria-label="Close">Close</button></div>
+    <div class="nums" id="nums"></div>
+    <div class="key" aria-label="Colour legend">
+      <span><i class="chip locked"></i>Locked</span>
+      <span><i class="chip"></i>New or forgotten</span>
+      <span><i class="chip" style="background:color-mix(in srgb, var(--accent) 35%, var(--track))"></i>Learning</span>
+      <span><i class="chip" style="background:color-mix(in srgb, var(--accent) 70%, var(--track))"></i>Known</span>
+      <span><i class="chip" style="background:var(--accent)"></i>Mastered</span>
+    </div>
+    <p class="legend">Colour fades again over days without practice, so those items come back for review. Hover or tap an item to see its history.</p>
+    <div id="confused"></div>
+    <div id="chips"></div>
+    <div class="pop" id="itemPop" hidden></div>
+  </form>
+</dialog>
+
+<dialog id="levelDlg" class="level">
+  <form method="dialog" class="dlg">
+    <div class="lvl-badge" aria-hidden="true"><svg viewBox="0 0 24 24" width="22" height="22"><path d="M12 4v13M6 10l6-6 6 6" fill="none" stroke="currentColor" stroke-width="2.2" stroke-linecap="round" stroke-linejoin="round"/></svg></div>
+    <p class="lvl-kicker">Level up</p>
+    <h2 id="lvlNum">Level 2</h2>
+    <p class="lvl-new" id="lvlNew"></p>
+    <div class="lvl-cards" id="lvlCards"></div>
+    <p class="lvl-tip">Tap a card to hear it. Take a breath, then carry on.</p>
+    <div class="lvl-stats" id="lvlStats"></div>
+    <button class="lvl-go" value="go" autofocus>Continue</button>
+    <p class="lvl-tip">or press any key on your piano</p>
+  </form>
+</dialog>
+
+<dialog id="roundDlg" class="level round">
+  <form method="dialog" class="dlg">
+    <div class="lvl-badge rest" aria-hidden="true"><svg viewBox="0 0 24 24" width="22" height="22"><path d="M8 5v14M16 5v14" fill="none" stroke="currentColor" stroke-width="2.4" stroke-linecap="round"/></svg></div>
+    <p class="lvl-kicker" id="rndNum">Round 1 done</p>
+    <h2 id="rndAcc">90% right</h2>
+    <div class="lvl-stats" id="rndStats"></div>
+    <div class="rnd-cols"><div id="rndMixed"></div><div id="rndSlow"></div></div>
+    <p class="lvl-tip">Short break: relax your hands and look away for a moment.</p>
+    <button class="lvl-go" value="go" autofocus>Next round</button>
+    <p class="lvl-tip">or press any key on your piano</p>
+  </form>
+</dialog>
+
+<dialog id="indexDlg">
+  <form method="dialog" class="dlg">
+    <div class="dlg-head"><h2>Index</h2><button class="close" value="close" aria-label="Close">Close</button></div>
+    <p class="legend">Large number: items you know well. Light bar: unlocked, dark bar: known. Tap a set to practise it.</p>
+    <div id="indexBody"></div>
+  </form>
+</dialog>
+
+<dialog id="setDlg">
+  <form method="dialog" class="dlg">
+    <div class="dlg-head"><h2>Settings</h2><button class="close" value="close" aria-label="Close">Close</button></div>
+    <div class="midi-row" id="midiRow">
+      <i class="dot" aria-hidden="true"></i>
+      <div class="midi-text"><b>MIDI keyboard</b><span id="midiStatus">Not connected</span></div>
+      <button type="button" class="pill" id="midiBtn">Connect</button>
+    </div>
+    <label class="tog"><input type="checkbox" data-set="dark"><span>Dark theme</span></label>
+    <label class="tog"><input type="checkbox" data-set="sound"><span>Sound for on-screen keys</span></label>
+    <label class="tog"><input type="checkbox" data-set="midiSound"><span>Sound for MIDI keyboard (turn off if your piano has speakers)</span></label>
+    <label class="tog"><input type="checkbox" data-set="octave"><span>Require the exact octave</span></label>
+    <label class="tog"><input type="checkbox" data-set="acc"><span>Include sharps and flats (Notes and Intervals)</span></label>
+    <label class="tog"><input type="checkbox" data-set="labels"><span>Show names on every key</span></label>
+    <label class="tog"><input type="checkbox" data-set="all"><span>Practise everything now (skip gradual unlocking)</span></label>
+    <div class="data">
+      <h3>Progress data</h3>
+      <p class="legend" id="dataNote">Saved in this browser only. Export to back up or to move it to another device.</p>
+      <div class="row">
+        <button type="button" id="exportBtn">Export progress</button>
+        <button type="button" id="importBtn">Import progress</button>
+        <button type="button" id="resetBtn" class="danger">Reset all progress</button>
+        <input type="file" id="importFile" accept="application/json" hidden>
+      </div>
+    </div>
+  </form>
+</dialog>
+
+<script src="app.js?v=3"></script>
+</body>
+</html>
