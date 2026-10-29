@@ -1,8 +1,8 @@
 # Staffy
 
-A sight-reading trainer for the piano staff. It shows a note, interval or chord on the staff, you play it, and it measures how fast you answer. Items you know well come up less often; the ones you miss come back sooner, Anki style.
+### ▶ [Open Staffy](https://og2t.github.io/staffy/)
 
-**Live:** https://og2t.github.io/staffy/
+A sight-reading trainer for the piano staff. It shows a note, interval or chord on the staff, you play it, and it measures how fast you answer. Items you know well come up less often; the ones you miss come back sooner, Anki style.
 
 ## What it does
 
