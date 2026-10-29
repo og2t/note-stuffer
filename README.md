@@ -1,8 +1,8 @@
-# Staffy
+# NoteStaffer
 
-### ▶ [Open Staffy](https://og2t.github.io/staffy/)
+### ▶ [Open NoteStaffer](https://og2t.github.io/note-staffer/)
 
-[![Staffy: a note on the treble staff above the on-screen keyboard](docs/screenshot.png)](https://og2t.github.io/staffy/)
+[![NoteStaffer: a note on the treble staff above the on-screen keyboard](docs/screenshot.png)](https://og2t.github.io/note-staffer/)
 
 A sight-reading trainer for the piano staff. It shows a note, interval or chord on the staff, you play it, and it measures how fast you answer. Items you know well come up less often; the ones you miss come back sooner, Anki style.
 
