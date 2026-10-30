@@ -482,10 +482,10 @@ function cheatSVG(clef, g) {
     const { top, bottom } = STAFF[s];
     for (let d = lo; d <= hi; d++) {
       if (clef === 'g' && staffFor(d) !== s) continue;
-      const y = yOf(d, s, g), line = (d - bottom) % 2 === 0, x = NOTE_X + (line ? 48 : 64);
-      if (line && (d > top || d < bottom)) svg += `<line class="ghost" x1="${NOTE_X + 38}" x2="${NOTE_X + 58}" y1="${y}" y2="${y}"/>`;
+      const y = yOf(d, s, g), line = (d - bottom) % 2 === 0, x = NOTE_X + (line ? 44 : 60);
+      if (line && (d > top || d < bottom)) svg += `<line class="ghost" x1="${NOTE_X + 39}" x2="${NOTE_X + 55}" y1="${y}" y2="${y}"/>`;
       const L = ((d % 7) + 7) % 7;
-      svg += `<text class="${L === 0 ? 'c' : ''}" x="${x}" y="${y + 2.6}" text-anchor="middle">${LETTERS[L]}${L === 0 ? `<tspan class="oct">${Math.floor(d / 7)}</tspan>` : ''}</text>`;
+      svg += `<text x="${x}" y="${y + 2.9}">${LETTERS[L]}${L === 0 ? Math.floor(d / 7) : ''}</text>`;
     }
   }
   return svg + '</g>';
