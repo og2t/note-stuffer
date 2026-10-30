@@ -35,7 +35,7 @@ function noteItems(clef, withAcc) {
         out.push({
           id: `n:${s}:${idName(n)}`, staff: s, notes: [{ ...n, s }],
           label: nameOf(n), short: nameOf(n),
-          order: Math.abs(d - ANCHOR[s]) + (a ? 4 : 0) + (s === 'b' ? 0.25 : 0) + d * 1e-3,
+          order: Math.abs(d - ANCHOR[s]) + (a ? 1000 : 0) + (s === 'b' ? 0.25 : 0) + d * 1e-3,
         });
       }
     }
@@ -55,7 +55,7 @@ function intervalItem(a, b, s, sa, sb, accA = 0, accB = 0) {
   };
 }
 
-// Natural pair first, then one sharpened or flattened note (lower or upper)
+// A sharpened or flattened note on the lower or upper note; these come after every natural pair
 const ACC_VARIANTS = [[0, 0], [1, 0], [-1, 0], [0, 1], [0, -1]];
 
 function intervalItems(clef, withAcc) {
@@ -65,7 +65,7 @@ function intervalItems(clef, withAcc) {
     for (const [x, y] of variants) {
       if (!validAcc(a, x) || !validAcc(b, y)) continue;
       const it = intervalItem(a, b, s, sa, sb, x, y);
-      it.order = base + (x || y ? 4 : 0);
+      it.order = base + (x || y ? 1000 : 0);
       out.push(it);
     }
   };
@@ -206,11 +206,12 @@ function extItems(clef) {
             if (!best || dist < best.dist) best = { ds, dist };
           }
           if (!best) continue;
+          const notes = best.ds.map((d, i) => ({ ...mkNote(d, voicing[i].acc), s }));
           out.push({
             id: `x:${s}:${root}${sym}${inv ? 'i' + inv : ''}`, staff: s, hint: inv ? INV7_HINT[inv] : hint,
-            notes: best.ds.map((d, i) => ({ ...mkNote(d, voicing[i].acc), s })),
+            notes,
             label: inv ? `${name}, ${long}, ${INV7_NAME[inv]}` : `${name}, ${long}`, short: name,
-            order: (tier + (inv ? 1.5 : 0)) * 100 + (acc ? 50 : 0) + ri * 0.5 + inv * 0.1
+            order: (notes.some(n => n.acc) ? 1000 : 0) + (tier + (inv ? 1.5 : 0)) * 100 + ri * 0.5 + inv * 0.1
               + EXT.findIndex(e => e[0] === sym) * 0.01 + (s === 'b' ? 0.25 : 0),
           });
         }
@@ -470,10 +471,27 @@ function yOf(d, s, g) { return g.tops[s] + (STAFF[s].top - d) * HS; }
 const CAPTION_H = 14;
 
 function drawStaff(item, state, caption = '') {
-  $('#staff').innerHTML = staffSVG(item, state, caption, S.settings.clef);
+  $('#staff').innerHTML = staffSVG(item, state, caption, S.settings.clef, true);
 }
 
-function staffSVG(item, state, caption, clef) {
+// Letter names for every line and space, shown while peeking
+function cheatSVG(clef, g) {
+  let svg = '<g class="cheat" aria-hidden="true">';
+  for (const s of Object.keys(g.tops)) {
+    const [lo, hi] = RANGE[s];
+    const { top, bottom } = STAFF[s];
+    for (let d = lo; d <= hi; d++) {
+      if (clef === 'g' && staffFor(d) !== s) continue;
+      const y = yOf(d, s, g), line = (d - bottom) % 2 === 0, x = NOTE_X + (line ? 48 : 64);
+      if (line && (d > top || d < bottom)) svg += `<line class="ghost" x1="${NOTE_X + 38}" x2="${NOTE_X + 58}" y1="${y}" y2="${y}"/>`;
+      const L = ((d % 7) + 7) % 7;
+      svg += `<text class="${L === 0 ? 'c' : ''}" x="${x}" y="${y + 2.6}" text-anchor="middle">${LETTERS[L]}${L === 0 ? `<tspan class="oct">${Math.floor(d / 7)}</tspan>` : ''}</text>`;
+    }
+  }
+  return svg + '</g>';
+}
+
+function staffSVG(item, state, caption, clef, cheat = false) {
   const g = geometry(clef);
   let svg = `<svg viewBox="0 0 ${W} ${g.H}" xmlns="http://www.w3.org/2000/svg" role="img" aria-label="Staff">`;
   svg += '<g class="lines">';
@@ -536,7 +554,7 @@ function staffSVG(item, state, caption, clef) {
     const lowest = Math.max(yBot, ...(item ? item.notes.map(n => yOf(n.d, n.s, g)) : []));
     svg += `<text class="caption ${state || ''}" x="${NOTE_X}" y="${lowest + 20}" text-anchor="middle">${text}</text>`;
   }
-  return svg + '</svg>';
+  return svg + (cheat ? cheatSVG(clef, g) : '') + '</svg>';
 }
 
 // ---------- On-screen keyboard ----------
@@ -729,11 +747,37 @@ function next() {
   sel.clear();
   paintKeys();
   drawStaff(current);
-  setMsg(PROMPT[S.settings.mode], '');
+  setMsg(PROMPT[S.settings.mode], history.length <= 3 ? 'Hold Shift or Space, or touch the staff, to see note names.' : '');
   shownAt = performance.now();
   idle = false;
   armIdle();
+  if (peeking) markPeeked();
 }
+
+// ---------- Peek: hold Shift or Space, or touch the staff, to see note names ----------
+let peeking = false;
+function setPeek(on) {
+  if (on === peeking) return;
+  peeking = on;
+  $('#staff').classList.toggle('peek', on);
+  if (on) markPeeked();
+}
+function markPeeked() {
+  if (phase !== 'ask' || idle) return;
+  idle = true;
+  clearTimeout(idleTimer);
+  setSub('Peeked: this answer won’t count toward your speed.');
+}
+const peekKey = e => (e.key === 'Shift' || e.code === 'Space') && !document.querySelector('dialog[open]') && !e.target.closest?.('input, textarea');
+document.addEventListener('keydown', e => {
+  if (!peekKey(e)) return;
+  if (e.code === 'Space') e.preventDefault();
+  setPeek(true);
+});
+document.addEventListener('keyup', e => { if (e.key === 'Shift' || e.code === 'Space') setPeek(false); });
+window.addEventListener('blur', () => setPeek(false));
+$('#staff').addEventListener('pointerdown', e => { e.preventDefault(); setPeek(true); });
+['pointerup', 'pointercancel', 'pointerleave'].forEach(ev => $('#staff').addEventListener(ev, () => setPeek(false)));
 
 // ---------- Idle pause ----------
 let idle = false, idleTimer;

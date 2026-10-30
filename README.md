@@ -10,7 +10,8 @@ A sight-reading trainer for the piano staff. It shows a note, interval or chord 
 
 - **Sets:** Notes, Intervals, Chords (triads and inversions) and Extended (sus, 6ths, 7ths with inversions, 9ths, 11ths, 13ths), on the treble staff, the bass staff, or both.
 - **Input:** the on-screen keyboard, or a MIDI keyboard in Chrome or Edge (Settings → MIDI keyboard). Safari, including on iPad, has no Web MIDI.
-- **Gradual unlocking:** new items unlock once the current ones are fast and accurate, with a level-up screen introducing them.
+- **Gradual unlocking:** new items unlock once the current ones are fast and accurate, all natural notes and chords before any sharps or flats, with a level-up screen introducing them.
+- **Cheatsheet:** hold Shift or Space, or touch the staff, to see the name of every line and space. That answer then doesn't count toward your speed.
 - **Breaks:** a short round summary every 20 answers, with mix-ups and slowest items.
 - **Progress:** per-item reaction-time charts, failure rates, and the notes you confuse most.
 - **Users:** separate progress per user, for example a Test user next to your own.
