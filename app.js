@@ -1196,7 +1196,7 @@ $('#exportBtn').addEventListener('click', async () => {
   const blob = new Blob([JSON.stringify({ app: 'notestaffer', v: 2, user: currentUser().name, ...S, log })], { type: 'application/json' });
   const a = document.createElement('a');
   a.href = URL.createObjectURL(blob);
-  a.download = `notestaffer-progress-${new Date().toISOString().slice(0, 10)}.json`;
+  a.download = `notestuffer-progress-${new Date().toISOString().slice(0, 10)}.json`;
   a.click();
   setTimeout(() => URL.revokeObjectURL(a.href), 1000);
 });
@@ -1214,7 +1214,7 @@ $('#importFile').addEventListener('change', async e => {
     }
     save(); applyTheme(); syncHeader(); rebuild();
     $('#setDlg').close();
-  } catch { alert('This file is not a NoteStaffer progress export.'); }
+  } catch { alert('This file is not a NoteStuffer progress export.'); }
   e.target.value = '';
 });
 $('#resetBtn').addEventListener('click', () => {
