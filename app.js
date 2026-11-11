@@ -3,7 +3,7 @@
 // ---------- Music theory ----------
 const LETTERS = ['C', 'D', 'E', 'F', 'G', 'A', 'B'];
 const SEMI = [0, 2, 4, 5, 7, 9, 11];
-const ACC_SYM = { '-1': '♭', '0': '', '1': '♯' };
+const ACC_SYM = { '-2': '𝄫', '-1': '♭', '0': '', '1': '♯', '2': '𝄪' };
 
 // d = diatonic step index (octave * 7 + letter); C4 = 28
 const mkNote = (d, acc = 0) => ({ d, acc, letter: ((d % 7) + 7) % 7, oct: Math.floor(d / 7) });
@@ -545,7 +545,10 @@ function drawStaff(item, state, caption = '') {
     const r = $('#staff').getBoundingClientRect();
     freeW = Math.max(W, r.height ? geometry(S.settings.clef).H * r.width / r.height : W);
   }
-  $('#staff').innerHTML = staffSVG(item, state, caption, S.settings.clef, !free, free ? scoreLayout() : null);
+  const layout = free ? scoreLayout() : null;
+  // The earlier chords slide by exactly how far the newest one pushed them: from the right edge to their new place
+  if (scoreSlide && layout?.length > 1) { const p = layout.at(-2); scoreSlide = freeW - 22 - p.right - p.x; }
+  $('#staff').innerHTML = staffSVG(item, state, caption, S.settings.clef, !free, layout);
   // Start the score where it was, then let it glide left to its new place
   const sc = free && scoreSlide && $('#staff .score');
   if (sc) {
@@ -653,7 +656,7 @@ function notesSVG(item, cls, g, x0) {
     let c = 0;
     while ((cols[c] || []).some(y => Math.abs(y - h.y) < 30)) c++;
     (cols[c] = cols[c] || []).push(h.y);
-    const glyph = h.n.acc > 0 ? '♯' : h.n.acc < 0 ? '♭' : '♮';
+    const glyph = ACC_SYM[h.n.acc] || '♮';
     const dy = ACC_DY;
     out += `<text class="accid ${cls}" x="${x0 - 16 - c * 10}" y="${h.y + dy}" font-size="22" text-anchor="middle">${glyph}</text>`;
   });
@@ -695,7 +698,7 @@ function staffSVG(item, state, caption, clef, cheat = false, score = null) {
   const named = (it, cls) => {
     const sym = it.sym;
     const head = sym ? `<text class="chordsym ${cls}" x="${it.x}" y="${high}" text-anchor="middle">${sym.replace(/[♯♭]/g, a => `<tspan class="acc ${a === '♯' ? 'sh' : 'fl'}">${a}</tspan>`)}</text>` : '';
-    const names = [...it.notes].sort((a, b) => b.d - a.d || b.acc - a.acc).map(n => nameOf(n).replace(/[♯♭]/g, a => `<tspan class="acc">${a}</tspan>`));
+    const names = [...it.notes].sort((a, b) => b.d - a.d || b.acc - a.acc).map(n => nameOf(n).replace(/[♯♭𝄪𝄫]/g, a => `<tspan class="acc ${a === '♯' || a === '𝄪' ? 'sh' : 'fl'}">${a}</tspan>`));
     if (!S.settings.freeNames) return head + notesSVG(it, cls, g, it.x);
     return head + notesSVG(it, cls, g, it.x)
       + `<text class="names ${cls}" x="${it.x}" y="${low + 16}" text-anchor="middle">${names.map((t, i) => `<tspan x="${it.x}" dy="${i ? 8 : 0}">${t}</tspan>`).join('')}</text>`;
@@ -807,6 +810,10 @@ function onMidiMessage(e) {
   } else if (cmd === 0xb0 && note === 66) {
     // Middle (sostenuto) pedal shows the cheatsheet while held
     setPeek(vel >= 64);
+  } else if (cmd === 0xb0 && note === 67) {
+    // Soft (left) pedal clears the Free play sheet
+    if (vel >= 64 && !softDown && phase === 'free') { score = []; shown = new Set(); freeShow(); }
+    softDown = vel >= 64;
   } else if (cmd === 0xb0 && note === 64) {
     // Sustain pedal continues from a break screen
     const down = vel >= 64, brk = document.querySelector('dialog.level[open]');
@@ -814,7 +821,7 @@ function onMidiMessage(e) {
     sustainDown = down;
   }
 }
-let sustainDown = false;
+let sustainDown = false, softDown = false;
 
 function midiStatus(text, state) {
   $('#midiStatus').textContent = text;
@@ -1023,8 +1030,18 @@ const PC_FLAT = ['C', 'D♭', 'D', 'E♭', 'E', 'F', 'G♭', 'G', 'A♭', 'A', '
 const INTERVALS = ['unison', 'minor second', 'major second', 'minor third', 'major third', 'perfect fourth', 'tritone',
   'perfect fifth', 'minor sixth', 'major sixth', 'minor seventh', 'major seventh'];
 
-function chordNames(ms) {
-  const pcName = pc => (chordFlats(ms) ? PC_FLAT : PC_SHARP)[pc];
+// Letter steps above the root for each chord's notes, in the order of its semitones (♯9 sits on the 2nd letter, ♯11 on the 4th)
+const DEGREES = {
+  '': [0, 2, 4], m: [0, 2, 4], '°': [0, 2, 4], '+': [0, 2, 4], sus2: [0, 1, 4], sus4: [0, 3, 4],
+  6: [0, 2, 4, 5], m6: [0, 2, 4, 5], 7: [0, 2, 4, 6], maj7: [0, 2, 4, 6], m7: [0, 2, 4, 6], 'm(maj7)': [0, 2, 4, 6],
+  'm7♭5': [0, 2, 4, 6], '°7': [0, 2, 4, 6], '7sus4': [0, 3, 4, 6], '+7': [0, 2, 4, 6],
+  add9: [0, 1, 2, 4], 'm(add9)': [0, 1, 2, 4], '6/9': [0, 1, 2, 4, 5], 9: [0, 1, 2, 4, 6], maj9: [0, 1, 2, 4, 6], m9: [0, 1, 2, 4, 6],
+  '7♭9': [0, 1, 2, 4, 6], '7♯9': [0, 1, 2, 4, 6], 11: [0, 1, 3, 4, 6], m11: [0, 1, 2, 3, 4, 6], 13: [0, 2, 4, 5, 6],
+  'm(add11)': [0, 2, 3, 4], 'm7(11)': [0, 2, 3, 4, 6], '7(♯11)': [0, 2, 3, 4, 6], 'maj7(♯11)': [0, 2, 3, 4, 6],
+};
+
+// Every chord the pitches can form, best first, as roots and shapes (named later, once spelled)
+function detectChords(ms) {
   const pcs = [...new Set(ms.map(m => m % 12))];
   const bass = Math.min(...ms) % 12;
   if (pcs.length < 3) return [];
@@ -1036,13 +1053,7 @@ function chordNames(ms) {
       const no5 = !full && iv.length >= 4 && iv.includes(7) && !set.has(7) && set.size === iv.length - 1 && iv.every(i => i === 7 || set.has(i));
       if (!full && !no5) return;
       const up = (bass - root + 12) % 12;
-      const inv = up === 0 ? '' : [3, 4].includes(up) ? 'first inversion'
-        : [6, 7, 8].includes(up) ? 'second inversion' : [9, 10, 11].includes(up) ? 'third inversion' : `${pcName(bass)} in the bass`;
-      out.push({
-        sym: pcName(root) + sym + (up ? '/' + pcName(bass) : ''),
-        long: `${pcName(root)} ${long}${no5 ? ' (no fifth)' : ''}`, inv,
-        rank: (up ? 10 : 0) + order * 0.01, no5, rooted: !up,
-      });
+      out.push({ root, bass, sym, long, iv, up, no5, rooted: !up, rank: (up ? 10 : 0) + order * 0.01 });
     });
   }
   // The bass decides: a name built on the bass wins, even without its fifth if it keeps four or more notes
@@ -1054,26 +1065,99 @@ function chordNames(ms) {
   // chord sits on the bass; sus triads only count when nothing at all sits on the bass
   if (!rooted.some(c => !c.no5)) {
     const triads = CHORDS.slice(0, rooted.length ? 4 : 6);
-    // Lowest upper note first, so G♯ A♯ D♯ over G reads G♯sus2/G every time and never D♯sus4/G
+    // Lowest upper note first, so G♯ A♯ D♯ over G always picks the same root
     const upper = [...new Set(ms.filter(m => m !== Math.min(...ms)).sort((a, b) => a - b).map(m => m % 12))];
     if (!upper.includes(bass)) for (const root of upper) {
       const set = new Set(upper.map(p => (p - root + 12) % 12));
       const tri = triads.find(([, , iv]) => set.size === iv.length && iv.every(i => set.has(i)));
       if (!tri) continue;
-      fits.unshift({ sym: `${pcName(root)}${tri[0]}/${pcName(bass)}`, long: `${pcName(root)} ${tri[1]} over ${pcName(bass)}`, inv: '', rank: -1 });
+      fits.unshift({ root, bass, sym: tri[0], long: tri[1], iv: tri[2], up: (bass - root + 12) % 12, over: true, rank: -1 });
       break;
     }
   }
-  return fits.sort((a, b) => a.rank - b.rank).filter((c, i, a) => a.findIndex(o => o.sym === c.sym) === i);
+  return fits.sort((a, b) => a.rank - b.rank);
 }
+
+// Letter steps each interval is normally written with (the tritone, 6, can be a 4th or a 5th)
+const STEP_OF = [0, 1, 1, 2, 2, 3, -1, 4, 5, 5, 6, 6];
+const stepFits = (from, to, semis) => { const st = ((to.letter - from.letter) % 7 + 7) % 7, w = STEP_OF[(semis % 12 + 12) % 12]; return w < 0 ? st === 3 || st === 4 : st === w; };
+
+// Spells one note on a given letter; null when that would need more than a double sharp or flat
+function onLetter(m, L) {
+  const acc = ((m % 12 - SEMI[L] + 18) % 12) - 6;
+  if (Math.abs(acc) > 2) return null;
+  const n = mkNote((Math.floor((m - acc) / 12) - 1) * 7 + L, acc);
+  return { ...n, s: S.settings.clef === 'g' ? staffFor(n.d) : S.settings.clef };
+}
+
+// Spells a chord from its root: each note on its proper letter, the root choosing whichever name needs fewer accidentals
+function spellAs(c, ms, flats) {
+  const cands = [...new Map([SHARP_SPELL[c.root], FLAT_SPELL[c.root]].map(x => [x.join(), x])).values()];
+  let best = null;
+  for (const [rL, rAcc] of cands) {
+    let notes = ms.map(m => {
+      const k = c.iv.indexOf((m % 12 - c.root + 12) % 12);
+      return k < 0 ? undefined : onLetter(m, (rL + DEGREES[c.sym][k]) % 7);
+    });
+    if (notes.some(n => n === null)) continue;
+    // A bass outside the chord is spelled by its interval from the root (B♭ under C is a 7th), on a letter the chord leaves free
+    const dir = rAcc ? rAcc < 0 : flats;
+    const used = new Set(notes.filter(Boolean).map(n => n.letter));
+    const rootNote = { letter: rL };
+    let clash = 0;
+    notes = notes.map((n, i) => {
+      if (n) return n;
+      const opts = [dir, !dir].map(f => spell(ms[i], f)).filter(x => !used.has(x.letter));
+      const free = opts.find(x => stepFits(rootNote, x, ms[i] - c.root)) || opts[0];
+      if (!free) clash++;
+      return free || spell(ms[i], dir);
+    });
+    const cost = notes.reduce((a, n) => a + Math.abs(n.acc) + (Math.abs(n.acc) > 1 ? 4 : 0), 0)
+      + clash * 3 + (rAcc && (rAcc < 0) !== flats ? 0.5 : 0);
+    if (!best || cost < best.cost) best = { cost, notes, dir };
+  }
+  return best && { notes: best.notes, dir: best.dir };
+}
+
+const pcLabel = n => LETTERS[n.letter] + ACC_SYM[n.acc];
+
+// Everything Free play needs about what was played: spelled notes, chord names best first, spelling direction
+function analyse(ms, flats) {
+  const found = detectChords(ms);
+  const main = found.length ? spellAs(found[0], ms, flats) : null;
+  if (!main) {
+    let f = chordFlats(ms, flats);
+    // Two notes take letters that match their interval's name: D♭–F is a major third, C♯–F would be a diminished fourth
+    const pcs = [...new Set(ms.map(m => m % 12))];
+    if (pcs.length === 2) {
+      const lo = Math.min(...ms), hi = ms.find(m => m % 12 !== lo % 12);
+      const fits = g => stepFits(spell(lo, g), spell(hi, g), hi - lo);
+      if (!fits(f) && fits(!f)) f = !f;
+    }
+    return { notes: ms.map(m => spell(m, f)), dir: f, names: [] };
+  }
+  const names = found.map(c => {
+    const sp = spellAs(c, ms, main.dir);
+    if (!sp) return null;
+    const at = pc => pcLabel(sp.notes[ms.findIndex(m => m % 12 === pc)]);
+    const root = at(c.root), bass = at(c.bass);
+    const inv = c.over || !c.up ? '' : [3, 4].includes(c.up) ? 'first inversion'
+      : [6, 7, 8].includes(c.up) ? 'second inversion' : [9, 10, 11].includes(c.up) ? 'third inversion' : `${bass} in the bass`;
+    return {
+      sym: root + c.sym + (c.up ? '/' + bass : ''),
+      long: c.over ? `${root} ${c.long} over ${bass}` : `${root} ${c.long}${c.no5 ? ' (no fifth)' : ''}`, inv,
+    };
+  }).filter(Boolean).filter((c, i, a) => a.findIndex(o => o.sym === c.sym) === i);
+  return { notes: main.notes, dir: main.dir, names };
+}
+
 // One line describing what was played: chord, interval or note
-function describe(ms) {
+function describe(ms, a) {
   if (!ms.length) return null;
-  const names = chordNames(ms);
-  if (names.length) return { title: names[0].sym, sub: [names[0].long, names[0].inv].filter(Boolean).join(', ')
-    + (names.length > 1 ? '. Also ' + names.slice(1).map(c => c.sym).join(', ') : '') };
+  if (a.names.length) return { title: a.names[0].sym, sub: [a.names[0].long, a.names[0].inv].filter(Boolean).join(', ')
+    + (a.names.length > 1 ? '. Also ' + a.names.slice(1).map(c => c.sym).join(', ') : '') };
   const pcs = [...new Set(ms.map(m => m % 12))];
-  const label = spellChord(ms).map(nameOf).join("  ");
+  const label = a.notes.map(nameOf).join('  ');
   const bass = Math.min(...ms) % 12;
   if (pcs.length === 2) return { title: label, sub: INTERVALS[(pcs.find(p => p !== bass) - bass + 12) % 12] };
   return { title: label, sub: pcs.length === 1 && ms.length > 1 ? 'octave' : '' };
@@ -1091,9 +1175,10 @@ let scoreSlide = 0;
 function scoreLayout() {
   const start = 62 + Math.abs(keySig()) * SIG_STEP + 26;
   // Room each chord needs left of its notes (accidentals) and right of them (a second's offset head)
-  const items = score.map(ms => {
-    const notes = spellChord(ms);
-    const sym = chordNames(ms)[0]?.sym || '';
+  const an = scoreAnalyses();
+  const items = score.map((ms, k) => {
+    const notes = an[k].notes;
+    const sym = an[k].names[0]?.sym || '';
     // Half the chord symbol's width, beyond what the plain gap already leaves free
     const wide = Math.max(0, sym.length * 2.5 - SCORE_GAP / 2 + 2);
     // Accidentals stack leftward in columns 10 apart, at most one column per accidental on the busier staff
@@ -1121,14 +1206,20 @@ function spell(m, flats = inKeyMode() ? keySig() < 0 : S.settings.flats) {
 }
 
 // Spells a chord so no two notes share a letter in one octave (G with A♭, not G with G♯) when the other spelling allows it
-function chordFlats(ms) {
-  const flats = inKeyMode() ? keySig() < 0 : S.settings.flats;
+function chordFlats(ms, flats = inKeyMode() ? keySig() < 0 : S.settings.flats) {
   const clashes = f => { const ns = ms.map(m => spell(m, f)); return ns.filter((n, i) => ns.some((o, j) => j < i && o.d === n.d)).length; };
   return clashes(!flats) < clashes(flats) ? !flats : flats;
 }
-function spellChord(ms) {
-  const f = chordFlats(ms);
-  return ms.map(m => spell(m, f));
+// Analyses every chord of the score; a chord that only repeats notes of the one before keeps its spelling direction
+function scoreAnalyses() {
+  const pref = inKeyMode() ? keySig() < 0 : S.settings.flats;
+  let f = pref;
+  return score.map((ms, k) => {
+    const prev = new Set((score[k - 1] || []).map(m => m % 12));
+    const a = analyse(ms, ms.every(m => prev.has(m % 12)) ? f : pref);
+    f = a.dir;
+    return a;
+  });
 }
 
 function startFree() {
@@ -1161,12 +1252,13 @@ function freeKey(m, fromMidi) {
 function freeShow() {
   if (phase !== 'free') return;
   const ms = [...shown].sort((a, b) => a - b);
-  const notes = spellChord(ms);
+  const a = ms.length ? scoreAnalyses().at(-1) : null;
+  const notes = a ? a.notes : [];
   const label = notes.map(nameOf).join('  ');
   current = ms.length ? { id: 'free', notes, label, short: label } : null;
   drawStaff(current);
   paintKeys(false);
-  const what = describe(ms);
+  const what = a && describe(ms, a);
   if (what) setMsg(what.title, what.sub);
   else setMsg('\u00a0', 'Play anything and it appears on the staff. Nothing here is recorded.');
   $('#next').innerHTML = '';

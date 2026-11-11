@@ -167,7 +167,8 @@ button { font: inherit; color: inherit; background: none; border: 0; padding: 0;
 
 .feedback { text-align: center; padding: 2px 0 14px; min-height: 128px; }
 .msg { margin: 0; font-size: 26px; font-weight: 500; letter-spacing: -0.02em; }
-.msg .acc { font-family: var(--music); font-weight: 400; position: relative; }
+.msg { line-height: 38px; height: 38px; white-space: nowrap; }
+.msg .acc { font-family: var(--music); font-weight: 400; position: relative; line-height: 0; }
 /* The music font draws ♯ and ♭ small and low beside text; these sizes and lifts centre them on capital letters */
 .msg .acc.sh { font-size: 1.3em; top: -.18em; }
 .msg .acc.fl { font-size: 1.15em; top: -.02em; }
@@ -368,6 +369,8 @@ dialog::backdrop { background: rgba(18, 19, 24, .32); backdrop-filter: blur(3px)
 .staff .names { font-family: var(--sans); font-size: 7px; font-weight: 500; fill: var(--grey); }
 .staff .names.new { fill: var(--ink); }
 .staff .names .acc { font-family: var(--music); }
+.staff .names .acc.sh { font-size: 1.3em; baseline-shift: .23em; }
+.staff .names .acc.fl { font-size: 1.15em; baseline-shift: .03em; }
 .staff .chordsym { font-family: var(--sans); font-size: 9px; font-weight: 600; fill: var(--grey); }
 .staff .chordsym.new { fill: var(--accent); }
 .staff .chordsym .acc { font-family: var(--music); font-weight: 400; }
