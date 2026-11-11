@@ -15,6 +15,8 @@ const STAFF = { t: { top: 38, bottom: 30, mid: 34 }, b: { top: 26, bottom: 18, m
 const RANGE = { t: [26, 42], b: [14, 30] };
 const ANCHOR = { t: 29.5, b: 22.5 };
 const staffFor = d => (d >= 28 ? 't' : 'b');
+// On the grand staff, middle C is also written on the ledger line above the bass staff
+const onStaff = (d, s, clef) => clef !== 'g' || staffFor(d) === s || (s === 'b' && d === 28);
 
 // Skips E♯, B♯, C♭ and F♭, which beginners rarely meet
 const validAcc = (d, a) => {
@@ -22,20 +24,40 @@ const validAcc = (d, a) => {
   return !(a === 1 && (L === 2 || L === 6)) && !(a === -1 && (L === 0 || L === 3));
 };
 
+// ---------- Keys: signature size (+ sharps, − flats) and tonic as [letter, accidental] ----------
+const KEYS = {
+  C: [0, [0, 0]], G: [1, [4, 0]], D: [2, [1, 0]], A: [3, [5, 0]], E: [4, [2, 0]],
+  F: [-1, [3, 0]], Bb: [-2, [6, -1]], Eb: [-3, [2, -1]], Ab: [-4, [5, -1]],
+};
+const SHARP_ORDER = [3, 0, 4, 1, 5, 2, 6], FLAT_ORDER = [6, 2, 5, 1, 4, 0, 3];
+const keySig = () => KEYS[S.settings.key || 'C'][0];
+const inKeyMode = () => keySig() !== 0;
+// The accidental the key signature gives a letter
+function keyAcc(L) {
+  const n = keySig();
+  if (n > 0) return SHARP_ORDER.slice(0, n).includes(L) ? 1 : 0;
+  return FLAT_ORDER.slice(0, -n).includes(L) ? -1 : 0;
+}
+const DEGREE_QUAL = ['maj', 'min', 'min', 'maj', 'maj', 'min', 'dim'];
+function scaleDegrees() {
+  const [tL] = KEYS[S.settings.key || 'C'][1];
+  return DEGREE_QUAL.map((q, i) => { const L = (tL + i) % 7; return [L, keyAcc(L), q]; });
+}
+
 // ---------- Item generators ----------
-function noteItems(clef, withAcc) {
+function noteItems(clef, withAcc, keyed = false) {
   const out = [];
   for (const s of clef === 'g' ? ['t', 'b'] : [clef]) {
     const [lo, hi] = RANGE[s];
     for (let d = lo; d <= hi; d++) {
-      if (clef === 'g' && staffFor(d) !== s) continue;
-      for (const a of withAcc ? [0, 1, -1] : [0]) {
+      if (!onStaff(d, s, clef)) continue;
+      for (const a of keyed ? [keyAcc(((d % 7) + 7) % 7)] : withAcc ? [0, 1, -1] : [0]) {
         const n = mkNote(d, a);
         if (!validAcc(d, a)) continue;
         out.push({
           id: `n:${s}:${idName(n)}`, staff: s, notes: [{ ...n, s }],
           label: nameOf(n), short: nameOf(n),
-          order: Math.abs(d - ANCHOR[s]) + (a ? 1000 : 0) + (s === 'b' ? 0.25 : 0) + d * 1e-3,
+          order: Math.abs(d - ANCHOR[s]) + (a && !keyed ? 1000 : 0) + (s === 'b' ? 0.25 : 0) + d * 1e-3,
         });
       }
     }
@@ -58,14 +80,15 @@ function intervalItem(a, b, s, sa, sb, accA = 0, accB = 0) {
 // A sharpened or flattened note on the lower or upper note; these come after every natural pair
 const ACC_VARIANTS = [[0, 0], [1, 0], [-1, 0], [0, 1], [0, -1]];
 
-function intervalItems(clef, withAcc) {
+function intervalItems(clef, withAcc, keyed = false) {
   const out = [];
   const variants = withAcc ? ACC_VARIANTS : [[0, 0]];
+  const letter = d => ((d % 7) + 7) % 7;
   const push = (a, b, s, sa, sb, base) => {
-    for (const [x, y] of variants) {
+    for (const [x, y] of keyed ? [[keyAcc(letter(a)), keyAcc(letter(b))]] : variants) {
       if (!validAcc(a, x) || !validAcc(b, y)) continue;
       const it = intervalItem(a, b, s, sa, sb, x, y);
-      it.order = base + (x || y ? 1000 : 0);
+      it.order = base + ((x || y) && !keyed ? 1000 : 0);
       out.push(it);
     }
   };
@@ -74,7 +97,7 @@ function intervalItems(clef, withAcc) {
     for (let a = lo; a <= hi; a++) for (let k = 1; k <= 7; k++) {
       const b = a + k;
       if (b > hi) continue;
-      if (clef === 'g' && (staffFor(a) !== s || staffFor(b) !== s)) continue;
+      if (!onStaff(a, s, clef) || !onStaff(b, s, clef)) continue;
       push(a, b, s, s, s, Math.abs((a + b) / 2 - ANCHOR[s]) + INTERVAL_PRI[k] * 1.5 + (s === 'b' ? 0.25 : 0));
     }
   }
@@ -111,15 +134,17 @@ function spellTriad(L, acc, q) {
   return [{ off: 0, acc }, tone(2, i3), tone(4, i5)];
 }
 
-function chordItems(clef) {
+// With a scale, only its seven triads, given as [letter, accidental, quality]
+function chordItems(clef, scale = null) {
   const out = [];
   const staves = clef === 'g' ? ['t', 'b'] : [clef];
-  ROOTS.forEach(([L, acc], ri) => {
-    for (const q of ['maj', 'min', 'dim']) {
-      if (q === 'dim' && !(L === 6 && acc === 0)) continue;
+  const list = scale ? scale.map(([L, acc, q]) => [L, acc, [q]]) : ROOTS.map(([L, acc]) => [L, acc, ['maj', 'min', 'dim']]);
+  list.forEach(([L, acc, quals], ri) => {
+    for (const q of quals) {
+      if (!scale && q === 'dim' && !(L === 6 && acc === 0)) continue;
       const tones = spellTriad(L, acc, q);
       if (tones.some(t => Math.abs(t.acc) > 1)) continue;
-      const diatonic = DIATONIC.has(`${L}:${acc}:${q}`);
+      const diatonic = !!scale || DIATONIC.has(`${L}:${acc}:${q}`);
       for (let inv = 0; inv < 3; inv++) {
         const voicing = [tones[0], tones[1], tones[2], { off: 7, acc: tones[0].acc }, { off: 9, acc: tones[1].acc }].slice(inv, inv + 3);
         for (const s of staves) {
@@ -179,10 +204,10 @@ const INV7_HINT = [
   'Third inversion: seventh in the bass; the seventh and root make a step at the bottom.',
 ];
 
-function extItems(clef) {
+function extItems(clef, roots = ROOTS) {
   const out = [];
   const staves = clef === 'g' ? ['t', 'b'] : [clef];
-  ROOTS.forEach(([L, acc], ri) => {
+  roots.forEach(([L, acc], ri) => {
     const rootSemi = SEMI[L] + acc;
     const root = LETTERS[L] + ACC_SYM[acc];
     for (const [sym, long, tones, hint, tier] of EXT) {
@@ -283,7 +308,7 @@ const DB = {
   },
 };
 
-const DEFAULT_SETTINGS = { v: 2, mode: 'notes', clef: 't', sound: true, midiSound: true, octave: true, acc: true, labels: false, all: false };
+const DEFAULT_SETTINGS = { v: 2, mode: 'notes', clef: 't', sound: true, midiSound: true, octave: true, acc: true, labels: false, all: false, freeNames: false };
 const S = { settings: { ...DEFAULT_SETTINGS }, cards: {}, unlock: {}, days: {} };
 
 // Each user's data lives under its own key prefix; the first user keeps the original unprefixed keys
@@ -314,6 +339,7 @@ async function loadUser(id) {
   if (!found) Object.assign(S.settings, keepLook);
   // Settings saved before v2 had sharps and flats off by default
   if (S.settings.v !== 2) { S.settings.v = 2; S.settings.acc = true; save(); }
+  if (Object.values(S.cards).some(c => c.streak === undefined)) await backfillStreaks(id);
   recent = [];
   $('#trace').innerHTML = '';
   applyTheme();
@@ -322,16 +348,37 @@ async function loadUser(id) {
   rebuild();
 }
 
+// Cards saved before streaks existed get theirs from the answer log
+async function backfillStreaks(id) {
+  const log = (await DB.logFor(id)).sort((a, b) => a.t - b.t);
+  const runs = {};
+  for (const r of log) runs[r.id] = r.ok ? (runs[r.id] ?? 0) + (r.peek ? 0 : 1) : 0;
+  for (const [k, c] of Object.entries(S.cards)) if (c.streak === undefined) c.streak = runs[k] ?? 0;
+  save();
+}
+
 // ---------- Spaced-repetition engine ----------
 const INITIAL = { notes: 4, intervals: 4, chords: 3, ext: 3 };
 const STEP = { notes: 2, intervals: 3, chords: 2, ext: 2 };
 const DAY = 864e5;
 
-const keyFor = (mode, clef) => `${mode}:${clef}${(mode === 'notes' || mode === 'intervals') && S.settings.acc ? ':acc' : ''}`;
+const keyFor = (mode, clef) => inKeyMode()
+  ? `${mode}:${clef}:key=${S.settings.key}`
+  : `${mode}:${clef}${(mode === 'notes' || mode === 'intervals') && S.settings.acc ? ':acc' : ''}`;
 const setKey = () => keyFor(S.settings.mode, S.settings.clef);
 
 function genItems(mode, clef) {
   const acc = S.settings.acc;
+  if (inKeyMode()) {
+    const sc = scaleDegrees();
+    const fits = it => it.notes.every(n => n.acc === keyAcc(n.letter));
+    const gen = {
+      notes: () => noteItems(clef, true, true), intervals: () => intervalItems(clef, true, true), chords: () => chordItems(clef, sc),
+      // Extended chords on the scale's roots that use only the scale's notes; none count as altered here
+      ext: () => extItems(clef, sc.map(([L, a]) => [L, a])).filter(fits).map(it => ({ ...it, order: it.order % 1000 })),
+    };
+    return gen[mode]().sort((a, b) => a.order - b.order);
+  }
   const gen = { notes: () => noteItems(clef, acc), intervals: () => intervalItems(clef, acc), chords: () => chordItems(clef), ext: () => extItems(clef) };
   return gen[mode]()
     .sort((a, b) => a.order - b.order);
@@ -363,6 +410,9 @@ let round = newRound(), lastRound = null, roundNo = 0;
 // Untimed answers (after a pause) count for accuracy only; their time is kept out of all speed stats
 const UNTIMED_Q = 0.5;
 
+// Right answers in a row needed on every unlocked item before new ones appear
+const STREAK = 5;
+
 function record(item, ok, rt, wrong = null, untimed = false) {
   const timed = ok && !untimed;
   round.n++;
@@ -371,7 +421,7 @@ function record(item, ok, rt, wrong = null, untimed = false) {
   round.answers.push({ item, ok, rt, timed, wrong });
   DB.logAdd({
     u: users.current, t: Date.now(), id: item.id, mode: S.settings.mode, clef: S.settings.clef,
-    ok, rt: Math.round(rt), wrong, src: inputSrc, octave: S.settings.octave, idle: untimed,
+    ok, rt: Math.round(rt), wrong, src: inputSrc, octave: S.settings.octave, idle: untimed, peek: peeked,
   });
   if (!ok) rt = 0;
   const q = ok && untimed ? UNTIMED_Q : quality(ok, rt, item.notes.length);
@@ -380,6 +430,8 @@ function record(item, ok, rt, wrong = null, untimed = false) {
   c.s = ok && q >= 0.6 ? Math.min(365, c.s * (1.6 + q)) : Math.max(0.25, c.s * 0.4);
   c.n++;
   if (ok) c.ok++;
+  // A peeked answer neither extends nor breaks the streak
+  c.streak = !ok ? 0 : (c.streak ?? 0) + (peeked ? 0 : 1);
   if (timed) { c.rt = c.rt ? c.rt * 0.7 + rt * 0.3 : rt; c.last = Math.round(rt); }
   c.t = Date.now();
   S.cards[item.id] = c;
@@ -396,6 +448,7 @@ let items = [], pool = [], current = null, history = [], relearn = [], picks = 0
 
 function rebuild() {
   const { mode, clef } = S.settings;
+  if (mode === 'free') return startFree();
   items = genItems(mode, clef);
   pool = poolOf(mode, clef, items);
   history = []; relearn = [];
@@ -416,7 +469,7 @@ function pick() {
   const weights = pool.map(it => {
     if (recent.has(it.id)) return 0;
     const c = S.cards[it.id];
-    return c && c.n >= 2 ? (1 - eff(c)) ** 2 + 0.04 : 1.2;
+    return c && (c.streak ?? 0) >= STREAK ? (1 - eff(c)) ** 2 + 0.04 : 1.2;
   });
   let r = Math.random() * weights.reduce((a, b) => a + b, 0);
   for (let i = 0; i < pool.length; i++) { r -= weights[i]; if (r <= 0) return pool[i]; }
@@ -428,11 +481,15 @@ function unlockStatus(p, total) {
   if (S.settings.all || p.length >= total) return null;
   const cs = p.map(i => S.cards[i.id]);
   const effs = cs.map(eff);
-  const pending = cs.filter(c => !c || c.n < 2).length;
+  const runs = cs.map(c => Math.min(STREAK, c?.streak ?? 0));
+  const pending = runs.filter(r => r < STREAK).length;
+  const lone = runs.findIndex(r => r < STREAK), left = STREAK - runs[lone];
   const avg = effs.reduce((a, b) => a + b, 0) / effs.length;
   const weakest = effs.indexOf(Math.min(...effs));
   const parts = [
-    [1 - pending / p.length, `answer ${pending === 1 ? '1 more item' : pending + ' more items'} twice`],
+    [runs.reduce((a, r) => a + r, 0) / (STREAK * p.length), pending === 1
+      ? `play ${p[lone].short} right ${left} more ${left === 1 ? 'time' : 'times'} in a row`
+      : `play ${pending} items right ${STREAK} times in a row`],
     [avg / 0.7, 'answer a little faster overall'],
     [effs[weakest] / 0.45, `practise ${p[weakest].short}`],
   ].map(([f, hint]) => [Math.min(1, f), hint]);
@@ -458,12 +515,23 @@ function maybeUnlock() {
 }
 
 // ---------- Staff rendering ----------
-const HS = 6, W = 300, NOTE_X = 172;
+const HS = 6, W = 300, STAFF_W = W, NOTE_X = 172;
+let freeW = W;
+const noteX = () => NOTE_X;
 
 function geometry(clef) {
   // The last CAPTION_H units hold the caption shown under the staff
-  if (clef === 'g') return { tops: { t: 44, b: 152 }, H: 236 + CAPTION_H };
-  return { tops: { [clef]: 44 }, H: 132 + CAPTION_H };
+  const g = clef === 'g' ? { tops: { t: 44, b: 152 }, H: 236 + CAPTION_H } : { tops: { [clef]: 44 }, H: 132 + CAPTION_H };
+  // Free play spans the whole keyboard, so the staff grows to fit its lowest C (with caption) and top B
+  if (S.settings.mode === 'free') {
+    const [lo, hi] = FREE_RANGE[clef];
+    const dHi = (Math.floor(hi / 12) - 1) * 7 + SHARP_SPELL[hi % 12][0];
+    const lift = Math.max(0, 10 - yOf(dHi, clef === 'b' ? 'b' : 't', g));
+    for (const k of Object.keys(g.tops)) g.tops[k] += lift;
+    const dLo = (Math.floor(lo / 12) - 1) * 7;
+    g.H = Math.max(g.H + lift, yOf(dLo, clef === 'g' ? 'b' : clef, g) + 26 + CAPTION_H);
+  }
+  return g;
 }
 
 function yOf(d, s, g) { return g.tops[s] + (STAFF[s].top - d) * HS; }
@@ -471,28 +539,135 @@ function yOf(d, s, g) { return g.tops[s] + (STAFF[s].top - d) * HS; }
 const CAPTION_H = 14;
 
 function drawStaff(item, state, caption = '') {
-  $('#staff').innerHTML = staffSVG(item, state, caption, S.settings.clef, true);
+  const free = phase === 'free';
+  $('#staff').classList.toggle('free', free);
+  if (free) {
+    const r = $('#staff').getBoundingClientRect();
+    freeW = Math.max(W, r.height ? geometry(S.settings.clef).H * r.width / r.height : W);
+  }
+  $('#staff').innerHTML = staffSVG(item, state, caption, S.settings.clef, !free, free ? scoreLayout() : null);
+  // Start the score where it was, then let it glide left to its new place
+  const sc = free && scoreSlide && $('#staff .score');
+  if (sc) {
+    sc.style.transform = `translateX(${scoreSlide}px)`;
+    sc.getBoundingClientRect();
+    sc.style.transition = 'transform .18s ease-out';
+    sc.style.transform = '';
+  }
+  scoreSlide = 0;
+}
+
+// Key signature positions on the treble staff; the bass staff uses the same shape two octaves lower
+const SIG_SHARPS = [38, 35, 39, 36, 33, 37, 34], SIG_FLATS = [34, 37, 33, 36, 32, 35, 31];
+const SIG_X = 56, SIG_STEP = 8;
+// Baseline offset that centres a sharp or natural, and a flat's bowl, on its line or space at 22px
+const ACC_DY = 3;
+function keySigSVG(s, g) {
+  const n = keySig();
+  const ds = (n > 0 ? SIG_SHARPS : SIG_FLATS).slice(0, Math.abs(n));
+  return ds.map((d, i) => {
+    const y = yOf(s === 't' ? d : d - 14, s, g);
+    return `<text class="accid" x="${SIG_X + i * SIG_STEP}" y="${y + ACC_DY}" font-size="22" text-anchor="middle">${n > 0 ? '♯' : '♭'}</text>`;
+  }).join('');
 }
 
 // Letter names for every line and space, shown while peeking
-function cheatSVG(clef, g) {
+function cheatSVG(clef, g, item) {
   let svg = '<g class="cheat" aria-hidden="true">';
   for (const s of Object.keys(g.tops)) {
     const [lo, hi] = RANGE[s];
     const { top, bottom } = STAFF[s];
     for (let d = lo; d <= hi; d++) {
-      if (clef === 'g' && staffFor(d) !== s) continue;
-      const y = yOf(d, s, g), line = (d - bottom) % 2 === 0, x = NOTE_X + (line ? 44 : 60);
-      if (line && (d > top || d < bottom)) svg += `<line class="ghost" x1="${NOTE_X + 39}" x2="${NOTE_X + 55}" y1="${y}" y2="${y}"/>`;
+      if (!onStaff(d, s, clef)) continue;
+      const y = yOf(d, s, g), line = (d - bottom) % 2 === 0, x = NOTE_X + (line ? 44 : 68);
+      if (line && (d > top || d < bottom)) svg += `<line class="ghost" x1="${NOTE_X + 30}" x2="${NOTE_X + 58}" y1="${y}" y2="${y}"/>`;
       const L = ((d % 7) + 7) % 7;
-      svg += `<text x="${x}" y="${y + 2.9}">${LETTERS[L]}${L === 0 ? Math.floor(d / 7) : ''}</text>`;
+      svg += `<text x="${x}" y="${y + 2.9}" text-anchor="middle">${LETTERS[L]}${L === 0 ? Math.floor(d / 7) : ''}</text>`;
     }
   }
-  return svg + '</g>';
+  return svg + sideKeysSVG(clef, g, item) + '</g>';
 }
 
-function staffSVG(item, state, caption, clef, cheat = false) {
+// Keyboard turned 90° anticlockwise between clef and note, one white key per line or space
+// Fixed past the widest key signature (4 accidentals)
+const SIDE_X = 62 + 4 * SIG_STEP, SIDE_W = 40, SIDE_BLACK = 24;
+function sideKeysSVG(clef, g, item) {
+  const on = new Set((item?.notes || []).map(n => `${n.s}:${n.d}:${n.acc}`));
+  let white = '', black = '';
+  for (const s of Object.keys(g.tops)) {
+    const [lo, hi] = RANGE[s];
+    for (let d = lo; d <= hi; d++) {
+      if (!onStaff(d, s, clef)) continue;
+      const y = yOf(d, s, g), L = ((d % 7) + 7) % 7;
+      const lit = on.has(`${s}:${d}:0`) ? 'on' : '';
+      white += `<rect class="${lit}" x="${SIDE_X}" y="${y - HS / 2}" width="${SIDE_W}" height="${HS}"/>`;
+      if (L === 0) white += `<text class="${lit}" x="${SIDE_X + SIDE_W - 2}" y="${y + 1.6}" text-anchor="end">C${Math.floor(d / 7)}</text>`;
+      const top = d < hi && onStaff(d + 1, s, clef);
+      // A black key above d is d sharp, and the flat of the white key above it
+      const hit = on.has(`${s}:${d}:1`) || on.has(`${s}:${d + 1}:-1`);
+      if (top && L !== 2 && L !== 6) black += `<rect class="${hit ? 'on' : ''}" x="${SIDE_X}" y="${y - HS / 2 - 2}" width="${SIDE_BLACK}" height="4" rx=".6"/>`;
+    }
+  }
+  // On the grand staff, an arc joins the two middle C keys to show they are the same key
+  let arc = '';
+  if (clef === 'g') {
+    const x = SIDE_X + SIDE_W, yt = yOf(28, 't', g), yb = yOf(28, 'b', g), bow = 14;
+    arc = `<path class="arc" d="M${x} ${yb}C${x + bow} ${yb} ${x + bow} ${yt} ${x} ${yt}"/>`;
+  }
+  return `<g class="side"><g class="sw">${white}</g><g class="sb">${black}</g>${arc}</g>`;
+}
+
+// One note, interval or chord, written with its stem side at x0
+function notesSVG(item, cls, g, x0) {
+  let out = '';
+  out += `<g class="notes ${cls}">`;
+  const ledgers = new Map();
+  const heads = [];
+  for (const s of ['t', 'b']) {
+    const ns = item.notes.filter(n => n.s === s).sort((a, b) => a.d - b.d);
+    let prevOffset = false;
+    ns.forEach((n, i) => {
+      const offset = i > 0 && n.d - ns[i - 1].d === 1 && !prevOffset;
+      prevOffset = offset;
+      const x = x0 + (offset ? 16 : 0);
+      heads.push({ n, x, y: yOf(n.d, s, g) });
+      const { top, bottom } = STAFF[s];
+      const add = L => {
+        const key = s + L, cur = ledgers.get(key);
+        ledgers.set(key, { y: yOf(L, s, g), x0: Math.min(cur?.x0 ?? 1e9, x - 13), x1: Math.max(cur?.x1 ?? -1e9, x + 13) });
+      };
+      for (let L = top + 2; L <= n.d; L += 2) add(L);
+      for (let L = bottom - 2; L >= n.d; L -= 2) add(L);
+    });
+  }
+  for (const l of ledgers.values()) out += `<line class="ledger" x1="${l.x0}" x2="${l.x1}" y1="${l.y}" y2="${l.y}"/>`;
+
+  const cols = [];
+  // Accidentals the key signature already gives are not written; leaving the key needs one, natural included
+  // Engraving order: highest first, then lowest, then working inward, each in the nearest free column
+  const zigzag = ['t', 'b'].flatMap(st => {
+    const hs = heads.filter(h => h.n.s === st && h.n.acc !== keyAcc(h.n.letter)).sort((a, b) => a.y - b.y);
+    return hs.map((_, i) => hs[i % 2 ? hs.length - 1 - (i >> 1) : i >> 1]);
+  });
+  zigzag.forEach(h => {
+    let c = 0;
+    while ((cols[c] || []).some(y => Math.abs(y - h.y) < 30)) c++;
+    (cols[c] = cols[c] || []).push(h.y);
+    const glyph = h.n.acc > 0 ? '♯' : h.n.acc < 0 ? '♭' : '♮';
+    const dy = ACC_DY;
+    out += `<text class="accid ${cls}" x="${x0 - 16 - c * 10}" y="${h.y + dy}" font-size="22" text-anchor="middle">${glyph}</text>`;
+  });
+  for (const h of heads) {
+    out += `<g class="head ${cls}" transform="translate(${h.x} ${h.y})"><ellipse rx="8.4" ry="5.8"/><ellipse class="hole" rx="4.4" ry="3" transform="rotate(-35)"/></g>`;
+  }
+  out += '</g>';
+  return out;
+}
+
+function staffSVG(item, state, caption, clef, cheat = false, score = null) {
   const g = geometry(clef);
+  // The free play score stretches to the width of its box
+  const W = score ? freeW : STAFF_W;
   let svg = `<svg viewBox="0 0 ${W} ${g.H}" xmlns="http://www.w3.org/2000/svg" role="img" aria-label="Staff">`;
   svg += '<g class="lines">';
   const staves = Object.keys(g.tops);
@@ -509,52 +684,31 @@ function staffSVG(item, state, caption, clef, cheat = false) {
     svg += s === 't'
       ? `<text class="clef" x="12" y="${top + 6 * HS + 4}" font-size="54">𝄞</text>`
       : `<text class="clef" x="14" y="${top + 42}" font-size="48">𝄢</text>`;
+    svg += keySigSVG(s, g);
   }
 
-  if (item) {
-    const cls = state || '';
-    svg += `<g class="notes ${cls}">`;
-    const ledgers = new Map();
-    const heads = [];
-    for (const s of ['t', 'b']) {
-      const ns = item.notes.filter(n => n.s === s).sort((a, b) => a.d - b.d);
-      let prevOffset = false;
-      ns.forEach((n, i) => {
-        const offset = i > 0 && n.d - ns[i - 1].d === 1 && !prevOffset;
-        prevOffset = offset;
-        const x = NOTE_X + (offset ? 16 : 0);
-        heads.push({ n, x, y: yOf(n.d, s, g) });
-        const { top, bottom } = STAFF[s];
-        const add = L => {
-          const key = s + L, cur = ledgers.get(key);
-          ledgers.set(key, { y: yOf(L, s, g), x0: Math.min(cur?.x0 ?? 1e9, x - 13), x1: Math.max(cur?.x1 ?? -1e9, x + 13) });
-        };
-        for (let L = top + 2; L <= n.d; L += 2) add(L);
-        for (let L = bottom - 2; L >= n.d; L -= 2) add(L);
-      });
-    }
-    for (const l of ledgers.values()) svg += `<line class="ledger" x1="${l.x0}" x2="${l.x1}" y1="${l.y}" y2="${l.y}"/>`;
-
-    const cols = [];
-    heads.filter(h => h.n.acc).sort((a, b) => a.y - b.y).forEach(h => {
-      let c = 0;
-      while ((cols[c] || []).some(y => Math.abs(y - h.y) < 30)) c++;
-      (cols[c] = cols[c] || []).push(h.y);
-      const glyph = h.n.acc > 0 ? '♯' : '♭';
-      const dy = h.n.acc > 0 ? 7 : 4;
-      svg += `<text class="accid ${cls}" x="${NOTE_X - 16 - c * 10}" y="${h.y + dy}" font-size="22" text-anchor="middle">${glyph}</text>`;
-    });
-    for (const h of heads) {
-      svg += `<g class="head ${cls}" transform="translate(${h.x} ${h.y})"><ellipse rx="8.4" ry="5.8"/><ellipse class="hole" rx="4.4" ry="3" transform="rotate(-35)"/></g>`;
-    }
-    svg += '</g>';
-  }
+  // Earlier chords slide as a group; the newest fades in at its place. Each is named underneath, highest note first
+  // All names share one row, just below the lowest note on screen
+  const low = Math.max(yBot, ...(score || []).flatMap(it => it.notes.map(n => yOf(n.d, n.s, g))));
+  // Chord symbols share one row above the highest note on screen
+  const high = Math.max(14, Math.min(yTop, ...(score || []).flatMap(it => it.notes.map(n => yOf(n.d, n.s, g)))) - 12);
+  const named = (it, cls) => {
+    const sym = it.sym;
+    const head = sym ? `<text class="chordsym ${cls}" x="${it.x}" y="${high}" text-anchor="middle">${sym.replace(/[♯♭]/g, a => `<tspan class="acc ${a === '♯' ? 'sh' : 'fl'}">${a}</tspan>`)}</text>` : '';
+    const names = [...it.notes].sort((a, b) => b.d - a.d || b.acc - a.acc).map(n => nameOf(n).replace(/[♯♭]/g, a => `<tspan class="acc">${a}</tspan>`));
+    if (!S.settings.freeNames) return head + notesSVG(it, cls, g, it.x);
+    return head + notesSVG(it, cls, g, it.x)
+      + `<text class="names ${cls}" x="${it.x}" y="${low + 16}" text-anchor="middle">${names.map((t, i) => `<tspan x="${it.x}" dy="${i ? 8 : 0}">${t}</tspan>`).join('')}</text>`;
+  };
+  if (score) svg += `<g class="score">${score.slice(0, -1).map(it => named(it, 'old')).join('')}</g>`
+    + (score.length ? named(score[score.length - 1], 'new') : '');
+  else if (item) svg += notesSVG(item, state || '', g, noteX());
   if (caption) {
     const text = caption.replace(/[&<>]/g, '').replace(/[♯♭]/g, a => `<tspan class="acc">${a}</tspan>`);
     const lowest = Math.max(yBot, ...(item ? item.notes.map(n => yOf(n.d, n.s, g)) : []));
-    svg += `<text class="caption ${state || ''}" x="${NOTE_X}" y="${lowest + 20}" text-anchor="middle">${text}</text>`;
+    svg += `<text class="caption ${state || ''}" x="${noteX()}" y="${lowest + 20}" text-anchor="middle">${text}</text>`;
   }
-  return svg + (cheat ? cheatSVG(clef, g) : '') + '</svg>';
+  return svg + (cheat ? cheatSVG(clef, g, item) : '') + '</svg>';
 }
 
 // ---------- On-screen keyboard ----------
@@ -564,7 +718,7 @@ const midiName = m => PC_NAMES[m % 12] + (Math.floor(m / 12) - 1);
 const keyEls = new Map();
 
 function buildKeyboard() {
-  const all = items.flatMap(i => i.notes.map(midiOf));
+  const all = S.settings.mode === 'free' ? FREE_RANGE[S.settings.clef] : items.flatMap(i => i.notes.map(midiOf));
   let lo = Math.min(...all), hi = Math.max(...all);
   lo -= lo % 12;
   // End on the white key just above a black top note so it has a neighbour
@@ -617,6 +771,7 @@ function sizeKeyboard() {
   document.documentElement.style.setProperty('--kb-h', `${Math.round(Math.min(200, Math.max(100, ww * 4.2)))}px`);
 }
 window.addEventListener('resize', sizeKeyboard);
+window.addEventListener('resize', () => { if (phase === 'free') freeShow(); });
 
 $('#kb').addEventListener('pointerdown', e => {
   const el = e.target.closest('[data-m]');
@@ -646,10 +801,20 @@ function onMidiMessage(e) {
   } else if (cmd === 0x80 || (cmd === 0x90 && vel === 0)) {
     held.delete(note);
     el?.classList.remove('down');
+    if (phase === 'free') return;
     // Releasing an incomplete chord lets you try it again from scratch
     if (!held.size && phase === 'ask' && sel.size) { sel.clear(); paintKeys(); }
+  } else if (cmd === 0xb0 && note === 66) {
+    // Middle (sostenuto) pedal shows the cheatsheet while held
+    setPeek(vel >= 64);
+  } else if (cmd === 0xb0 && note === 64) {
+    // Sustain pedal continues from a break screen
+    const down = vel >= 64, brk = document.querySelector('dialog.level[open]');
+    if (down && !sustainDown && brk && Date.now() - levelOpenedAt > 900) brk.close();
+    sustainDown = down;
   }
 }
+let sustainDown = false;
 
 function midiStatus(text, state) {
   $('#midiStatus').textContent = text;
@@ -749,22 +914,25 @@ function next() {
   drawStaff(current);
   setMsg(PROMPT[S.settings.mode], history.length <= 3 ? 'Hold Shift or Space, or touch the staff, to see note names.' : '');
   shownAt = performance.now();
-  idle = false;
+  idle = peeked = false;
   armIdle();
   if (peeking) markPeeked();
 }
 
 // ---------- Peek: hold Shift or Space, or touch the staff, to see note names ----------
-let peeking = false;
+let peeking = false, peeked = false;
 function setPeek(on) {
+  // Free play has no cheatsheet
+  if (phase === 'free') on = false;
   if (on === peeking) return;
   peeking = on;
   $('#staff').classList.toggle('peek', on);
   if (on) markPeeked();
+  paintKeys();
 }
 function markPeeked() {
-  if (phase !== 'ask' || idle) return;
-  idle = true;
+  if (phase !== 'ask' || peeked) return;
+  peeked = idle = true;
   clearTimeout(idleTimer);
   setSub('Peeked: this answer won’t count toward your speed.');
 }
@@ -802,6 +970,7 @@ let inputSrc = 'screen';
 function onKey(m, fromMidi = false) {
   inputSrc = fromMidi ? 'midi' : 'screen';
   if (!fromMidi && S.settings.sound) tone(m);
+  if (phase === 'free') return freeKey(m, fromMidi);
   if (phase === 'done') return;
   const isTarget = targets().some(t => matches(m, t));
   if (phase === 'ask') {
@@ -831,6 +1000,177 @@ function succeed() {
   setMsg(current.label, current.hint || '', 'good', idle ? 'untimed' : rt);
   if (fresh) { setTimeout(() => showLevelUp(fresh), 700); return; }
   setTimeout(afterAnswer, isChord ? 1600 : S.settings.mode === 'intervals' ? 1000 : 550);
+}
+
+// ---------- Chord recognition: every way to name a set of pitches, best first ----------
+// [symbol, name, semitones above the root]; a seventh, sixth or extension chord may leave out its fifth
+const CHORDS = [
+  ['', 'major', [0, 4, 7]], ['m', 'minor', [0, 3, 7]], ['°', 'diminished', [0, 3, 6]], ['+', 'augmented', [0, 4, 8]],
+  ['sus2', 'suspended 2nd', [0, 2, 7]], ['sus4', 'suspended 4th', [0, 5, 7]],
+  ['6', 'sixth', [0, 4, 7, 9]], ['m6', 'minor sixth', [0, 3, 7, 9]],
+  ['7', 'dominant seventh', [0, 4, 7, 10]], ['maj7', 'major seventh', [0, 4, 7, 11]], ['m7', 'minor seventh', [0, 3, 7, 10]],
+  ['m(maj7)', 'minor major seventh', [0, 3, 7, 11]], ['m7♭5', 'half-diminished seventh', [0, 3, 6, 10]],
+  ['°7', 'diminished seventh', [0, 3, 6, 9]], ['7sus4', 'seventh, suspended 4th', [0, 5, 7, 10]], ['+7', 'augmented seventh', [0, 4, 8, 10]],
+  ['add9', 'added ninth', [0, 2, 4, 7]], ['m(add9)', 'minor added ninth', [0, 2, 3, 7]], ['6/9', 'six-nine', [0, 2, 4, 7, 9]],
+  ['9', 'dominant ninth', [0, 2, 4, 7, 10]], ['maj9', 'major ninth', [0, 2, 4, 7, 11]], ['m9', 'minor ninth', [0, 2, 3, 7, 10]],
+  ['7♭9', 'seventh, flat ninth', [0, 1, 4, 7, 10]], ['7♯9', 'seventh, sharp ninth', [0, 3, 4, 7, 10]],
+  ['11', 'eleventh', [0, 2, 5, 7, 10]], ['m11', 'minor eleventh', [0, 2, 3, 5, 7, 10]], ['13', 'thirteenth', [0, 4, 7, 9, 10]],
+  ['m(add11)', 'minor added eleventh', [0, 3, 5, 7]], ['m7(11)', 'minor seventh, added eleventh', [0, 3, 5, 7, 10]],
+  ['7(♯11)', 'seventh, sharp eleventh', [0, 4, 6, 7, 10]], ['maj7(♯11)', 'major seventh, sharp eleventh', [0, 4, 6, 7, 11]],
+];
+const PC_SHARP = ['C', 'C♯', 'D', 'D♯', 'E', 'F', 'F♯', 'G', 'G♯', 'A', 'A♯', 'B'];
+const PC_FLAT = ['C', 'D♭', 'D', 'E♭', 'E', 'F', 'G♭', 'G', 'A♭', 'A', 'B♭', 'B'];
+const INTERVALS = ['unison', 'minor second', 'major second', 'minor third', 'major third', 'perfect fourth', 'tritone',
+  'perfect fifth', 'minor sixth', 'major sixth', 'minor seventh', 'major seventh'];
+
+function chordNames(ms) {
+  const pcName = pc => (chordFlats(ms) ? PC_FLAT : PC_SHARP)[pc];
+  const pcs = [...new Set(ms.map(m => m % 12))];
+  const bass = Math.min(...ms) % 12;
+  if (pcs.length < 3) return [];
+  const out = [];
+  for (const root of pcs) {
+    const set = new Set(pcs.map(p => (p - root + 12) % 12));
+    CHORDS.forEach(([sym, long, iv], order) => {
+      const full = iv.every(i => set.has(i)) && set.size === iv.length;
+      const no5 = !full && iv.length >= 4 && iv.includes(7) && !set.has(7) && set.size === iv.length - 1 && iv.every(i => i === 7 || set.has(i));
+      if (!full && !no5) return;
+      const up = (bass - root + 12) % 12;
+      const inv = up === 0 ? '' : [3, 4].includes(up) ? 'first inversion'
+        : [6, 7, 8].includes(up) ? 'second inversion' : [9, 10, 11].includes(up) ? 'third inversion' : `${pcName(bass)} in the bass`;
+      out.push({
+        sym: pcName(root) + sym + (up ? '/' + pcName(bass) : ''),
+        long: `${pcName(root)} ${long}${no5 ? ' (no fifth)' : ''}`, inv,
+        rank: (up ? 10 : 0) + order * 0.01, no5, rooted: !up,
+      });
+    });
+  }
+  // The bass decides: a name built on the bass wins, even without its fifth if it keeps four or more notes
+  const rooted = out.filter(c => c.rooted && (!c.no5 || pcs.length >= 4));
+  let fits = rooted.length ? rooted : out;
+  // Names that leave out the fifth only count when no complete chord fits
+  if (fits.some(c => !c.no5)) fits = fits.filter(c => !c.no5);
+  // A plain triad above the bass reads best as that triad over the bass (Am/G, C/D), unless a complete
+  // chord sits on the bass; sus triads only count when nothing at all sits on the bass
+  if (!rooted.some(c => !c.no5)) {
+    const triads = CHORDS.slice(0, rooted.length ? 4 : 6);
+    // Lowest upper note first, so G♯ A♯ D♯ over G reads G♯sus2/G every time and never D♯sus4/G
+    const upper = [...new Set(ms.filter(m => m !== Math.min(...ms)).sort((a, b) => a - b).map(m => m % 12))];
+    if (!upper.includes(bass)) for (const root of upper) {
+      const set = new Set(upper.map(p => (p - root + 12) % 12));
+      const tri = triads.find(([, , iv]) => set.size === iv.length && iv.every(i => set.has(i)));
+      if (!tri) continue;
+      fits.unshift({ sym: `${pcName(root)}${tri[0]}/${pcName(bass)}`, long: `${pcName(root)} ${tri[1]} over ${pcName(bass)}`, inv: '', rank: -1 });
+      break;
+    }
+  }
+  return fits.sort((a, b) => a.rank - b.rank).filter((c, i, a) => a.findIndex(o => o.sym === c.sym) === i);
+}
+// One line describing what was played: chord, interval or note
+function describe(ms) {
+  if (!ms.length) return null;
+  const names = chordNames(ms);
+  if (names.length) return { title: names[0].sym, sub: [names[0].long, names[0].inv].filter(Boolean).join(', ')
+    + (names.length > 1 ? '. Also ' + names.slice(1).map(c => c.sym).join(', ') : '') };
+  const pcs = [...new Set(ms.map(m => m % 12))];
+  const label = spellChord(ms).map(nameOf).join("  ");
+  const bass = Math.min(...ms) % 12;
+  if (pcs.length === 2) return { title: label, sub: INTERVALS[(pcs.find(p => p !== bass) - bass + 12) % 12] };
+  return { title: label, sub: pcs.length === 1 && ms.length > 1 ? 'octave' : '' };
+}
+
+// ---------- Free play: whatever you play is written on the staff ----------
+const FREE_RANGE = { t: [55, 95], b: [33, 67], g: [33, 95] };
+const SHARP_SPELL = [[0, 0], [0, 1], [1, 0], [1, 1], [2, 0], [3, 0], [3, 1], [4, 0], [4, 1], [5, 0], [5, 1], [6, 0]];
+const FLAT_SPELL = [[0, 0], [1, -1], [1, 0], [2, -1], [2, 0], [3, 0], [4, -1], [4, 0], [5, -1], [5, 0], [6, -1], [6, 0]];
+let shown = new Set(), score = [];
+// Score layout: chords written left to right after the key signature; once full, the oldest scroll off
+const SCORE_GAP = 30;
+let scoreSlide = 0;
+// The newest chord sits at the right; each new one pushes the rest left until they leave past the clef
+function scoreLayout() {
+  const start = 62 + Math.abs(keySig()) * SIG_STEP + 26;
+  // Room each chord needs left of its notes (accidentals) and right of them (a second's offset head)
+  const items = score.map(ms => {
+    const notes = spellChord(ms);
+    const sym = chordNames(ms)[0]?.sym || '';
+    // Half the chord symbol's width, beyond what the plain gap already leaves free
+    const wide = Math.max(0, sym.length * 2.5 - SCORE_GAP / 2 + 2);
+    // Accidentals stack leftward in columns 10 apart, at most one column per accidental on the busier staff
+    const accs = Math.max(...['t', 'b'].map(st => notes.filter(n => n.s === st && n.acc !== keyAcc(n.letter)).length));
+    const left = Math.max(wide, accs ? 12 + 10 * Math.min(accs, 3) : 0);
+    const right = Math.max(wide, notes.some(n => notes.some(o => o !== n && o.s === n.s && Math.abs(o.d - n.d) === 1)) ? 16 : 0);
+    return { id: 'free', ms, notes, sym, left, right };
+  });
+  const out = [];
+  const end = freeW - 22;
+  let x = end;
+  for (let i = items.length - 1; i >= 0; i--) {
+    const it = items[i], next = items[i + 1];
+    x = next ? x - next.left - SCORE_GAP - it.right : end - it.right;
+    if (x - it.left < start) break;
+    out.unshift({ ...it, x });
+  }
+  return out;
+}
+
+function spell(m, flats = inKeyMode() ? keySig() < 0 : S.settings.flats) {
+  const [L, acc] = (flats ? FLAT_SPELL : SHARP_SPELL)[m % 12];
+  const n = mkNote((Math.floor(m / 12) - 1) * 7 + L, acc);
+  return { ...n, s: S.settings.clef === 'g' ? staffFor(n.d) : S.settings.clef };
+}
+
+// Spells a chord so no two notes share a letter in one octave (G with A♭, not G with G♯) when the other spelling allows it
+function chordFlats(ms) {
+  const flats = inKeyMode() ? keySig() < 0 : S.settings.flats;
+  const clashes = f => { const ns = ms.map(m => spell(m, f)); return ns.filter((n, i) => ns.some((o, j) => j < i && o.d === n.d)).length; };
+  return clashes(!flats) < clashes(flats) ? !flats : flats;
+}
+function spellChord(ms) {
+  const f = chordFlats(ms);
+  return ms.map(m => spell(m, f));
+}
+
+function startFree() {
+  setPeek(false);
+  items = []; pool = []; current = null;
+  phase = 'free';
+  clearTimeout(idleTimer);
+  shown = new Set();
+  score = [];
+  sel.clear();
+  buildKeyboard();
+  $('#trace').innerHTML = '';
+  freeShow();
+}
+
+// MIDI keys struck within CHORD_MS of each other form one chord; each on-screen tap writes a new note
+const CHORD_MS = 80;
+let chordAt = -1e9;
+function freeKey(m, fromMidi) {
+  const now = performance.now();
+  const fresh = !fromMidi || now - chordAt > CHORD_MS;
+  if (fresh) { shown = new Set(); chordAt = now; }
+  shown.add(m);
+  const chord = [...shown].sort((a, b) => a - b);
+  if (fresh || !score.length) { score.push(chord); scoreSlide = SCORE_GAP; } else score[score.length - 1] = chord;
+  if (score.length > 64) score.shift();
+  freeShow();
+}
+
+function freeShow() {
+  if (phase !== 'free') return;
+  const ms = [...shown].sort((a, b) => a - b);
+  const notes = spellChord(ms);
+  const label = notes.map(nameOf).join('  ');
+  current = ms.length ? { id: 'free', notes, label, short: label } : null;
+  drawStaff(current);
+  paintKeys(false);
+  const what = describe(ms);
+  if (what) setMsg(what.title, what.sub);
+  else setMsg('\u00a0', 'Play anything and it appears on the staff. Nothing here is recorded.');
+  $('#next').innerHTML = '';
+  $('#today').textContent = '';
 }
 
 // ---------- Level-up break ----------
@@ -938,11 +1278,12 @@ function flashWrong(m) {
   setTimeout(() => el.classList.remove('wrong'), 450);
 }
 
-function paintKeys(showHint = phase === 'fix') {
+function paintKeys(showHint = phase === 'fix' || (peeking && phase === 'ask')) {
   const t = current ? targets() : [];
   for (const [m, el] of keyEls) {
     el.classList.toggle('sel', sel.has(m));
     el.classList.toggle('hint', showHint && t.includes(m) && !sel.has(m));
+    el.classList.toggle('played', phase === 'free' ? shown.has(m) : sel.has(m));
   }
 }
 
@@ -952,7 +1293,7 @@ function $(q) { return document.querySelector(q); }
 function setMsg(text, sub, cls = '', rt) {
   const el = $('#msg');
   el.className = 'msg ' + cls;
-  el.innerHTML = text.replace(/[♯♭]/g, a => `<span class="acc">${a}</span>`);
+  el.innerHTML = text.replace(/[♯♭]/g, a => `<span class="acc ${a === '♯' ? 'sh' : 'fl'}">${a}</span>`);
   if (rt != null) {
     const span = document.createElement('span');
     span.className = 'rt';
@@ -1004,11 +1345,17 @@ function applyTheme() {
 // ---------- Header controls ----------
 function syncHeader() {
   document.querySelectorAll('#modeSeg button').forEach(b => b.setAttribute('aria-pressed', b.dataset.mode === S.settings.mode));
+  $('#accSeg').hidden = S.settings.mode !== 'free' || inKeyMode();
+  document.querySelectorAll('#accSeg button').forEach(b => b.setAttribute('aria-pressed', b.dataset.flats === (S.settings.flats ? '1' : '0')));
   document.querySelectorAll('#clefSeg button').forEach(b => b.setAttribute('aria-pressed', b.dataset.clef === S.settings.clef));
 }
 $('#modeSeg').addEventListener('click', e => {
   const b = e.target.closest('button'); if (!b) return;
   S.settings.mode = b.dataset.mode; save(); syncHeader(); rebuild();
+});
+$('#accSeg').addEventListener('click', e => {
+  const b = e.target.closest('button'); if (!b) return;
+  S.settings.flats = b.dataset.flats === '1'; save(); syncHeader(); freeShow();
 });
 $('#clefSeg').addEventListener('click', e => {
   const b = e.target.closest('button'); if (!b) return;
@@ -1019,6 +1366,8 @@ $('#clefSeg').addEventListener('click', e => {
 $('#setBtn').addEventListener('click', () => {
   document.querySelectorAll('[data-set]').forEach(i => { i.checked = !!S.settings[i.dataset.set]; });
   $('#dataNote').textContent = `${currentUser().name}’s progress is saved in this browser only. Export to back up or to move it to another device. Import and Reset replace it.`;
+  $('#release').textContent = `NoteStuffer ${RELEASE}`;
+  $('#keySel').value = S.settings.key || 'C';
   $('#setDlg').showModal();
 });
 document.querySelectorAll('[data-set]').forEach(i => i.addEventListener('change', () => {
@@ -1027,7 +1376,12 @@ document.querySelectorAll('[data-set]').forEach(i => i.addEventListener('change'
   if (['acc', 'all'].includes(i.dataset.set)) rebuild();
   if (i.dataset.set === 'labels') { buildKeyboard(); paintKeys(); }
   if (i.dataset.set === 'dark') applyTheme();
+  if (i.dataset.set === 'freeNames') freeShow();
 }));
+
+$('#keySel').addEventListener('change', e => {
+  S.settings.key = e.target.value; save(); syncHeader(); rebuild();
+});
 
 // ---------- Index of all sets ----------
 const MODES = [['notes', 'Notes'], ['intervals', 'Intervals'], ['chords', 'Chords'], ['ext', 'Extended']];

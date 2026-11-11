@@ -9,7 +9,7 @@
 <link rel="preconnect" href="https://fonts.googleapis.com">
 <link rel="preconnect" href="https://fonts.gstatic.com" crossorigin>
 <link href="https://fonts.googleapis.com/css2?family=Geist:wght@400;500;600&family=Noto+Music&display=swap" rel="stylesheet">
-<link rel="stylesheet" href="style.css?v=7">
+<link rel="stylesheet" href="style.css?v=9">
 </head>
 <body>
 <header class="bar">
@@ -19,6 +19,11 @@
     <button data-mode="intervals">Intervals</button>
     <button data-mode="chords">Chords</button>
     <button data-mode="ext">Extended</button>
+    <button data-mode="free">Free play</button>
+  </div>
+  <div class="seg acc-seg" id="accSeg" role="group" aria-label="Spell black keys as" hidden>
+    <button data-flats="0" title="Spell black keys as sharps"><span class="lbl">Sharps</span><span class="acc">♯</span></button>
+    <button data-flats="1" title="Spell black keys as flats"><span class="lbl">Flats</span><span class="acc">♭</span></button>
   </div>
   <div class="seg" id="clefSeg" role="group" aria-label="Staff">
     <button data-clef="t">Treble</button>
@@ -32,7 +37,7 @@
   </div>
   <button class="icon" id="indexBtn" aria-label="Index of all sets" title="Index"><svg class="ico" viewBox="0 0 20 20" width="18" height="18" aria-hidden="true"><rect x="3" y="3" width="5.5" height="5.5" rx="1.5"/><rect x="11.5" y="3" width="5.5" height="5.5" rx="1.5"/><rect x="3" y="11.5" width="5.5" height="5.5" rx="1.5"/><rect x="11.5" y="11.5" width="5.5" height="5.5" rx="1.5"/></svg><span class="lbl">Index</span></button>
   <button class="icon" id="statsBtn" aria-label="Progress" title="Progress"><svg class="ico" viewBox="0 0 20 20" width="18" height="18" aria-hidden="true"><path d="M4 16V10M10 16V4M16 16v-8"/></svg><span class="lbl">Progress</span></button>
-  <button class="icon" id="setBtn" aria-label="Settings" title="Settings"><svg class="ico" viewBox="0 0 20 20" width="18" height="18" aria-hidden="true"><circle cx="10" cy="10" r="2.6"/><path d="M10 2.8v2.1M10 15.1v2.1M17.2 10h-2.1M4.9 10H2.8M15.1 4.9l-1.5 1.5M6.4 13.6l-1.5 1.5M15.1 15.1l-1.5-1.5M6.4 6.4 4.9 4.9"/></svg><span class="lbl">Settings</span></button>
+  <button class="icon" id="setBtn" aria-label="Settings" title="Settings"><svg class="ico" viewBox="0 0 24 24" width="18" height="18" aria-hidden="true" style="stroke-width:1.9"><path d="M12.22 2h-.44a2 2 0 0 0-2 2v.18a2 2 0 0 1-1 1.73l-.43.25a2 2 0 0 1-2 0l-.15-.08a2 2 0 0 0-2.73.73l-.22.38a2 2 0 0 0 .73 2.73l.15.1a2 2 0 0 1 1 1.72v.51a2 2 0 0 1-1 1.74l-.15.09a2 2 0 0 0-.73 2.73l.22.38a2 2 0 0 0 2.73.73l.15-.08a2 2 0 0 1 2 0l.43.25a2 2 0 0 1 1 1.73V20a2 2 0 0 0 2 2h.44a2 2 0 0 0 2-2v-.18a2 2 0 0 1 1-1.73l.43-.25a2 2 0 0 1 2 0l.15.08a2 2 0 0 0 2.73-.73l.22-.39a2 2 0 0 0-.73-2.73l-.15-.08a2 2 0 0 1-1-1.74v-.5a2 2 0 0 1 1-1.74l.15-.09a2 2 0 0 0 .73-2.73l-.22-.38a2 2 0 0 0-2.73-.73l-.15.08a2 2 0 0 1-2 0l-.43-.25a2 2 0 0 1-1-1.73V4a2 2 0 0 0-2-2z"/><circle cx="12" cy="12" r="3"/></svg><span class="lbl">Settings</span></button>
 </header>
 
 <main class="stage">
@@ -50,7 +55,7 @@
 
 <dialog id="statsDlg">
   <form method="dialog" class="dlg">
-    <div class="dlg-head"><h2>Progress</h2><button class="close" value="close" aria-label="Close">Close</button></div>
+    <div class="dlg-head"><h2>Progress</h2><button class="close" value="close" aria-label="Close" title="Close"><svg viewBox="0 0 16 16" width="16" height="16" aria-hidden="true"><path d="M4 4l8 8M12 4l-8 8"/></svg></button></div>
     <div class="nums" id="nums"></div>
     <div class="key" aria-label="Colour legend">
       <span><i class="chip locked"></i>Locked</span>
@@ -95,7 +100,7 @@
 
 <dialog id="indexDlg">
   <form method="dialog" class="dlg">
-    <div class="dlg-head"><h2>Index</h2><button class="close" value="close" aria-label="Close">Close</button></div>
+    <div class="dlg-head"><h2>Index</h2><button class="close" value="close" aria-label="Close" title="Close"><svg viewBox="0 0 16 16" width="16" height="16" aria-hidden="true"><path d="M4 4l8 8M12 4l-8 8"/></svg></button></div>
     <p class="legend">Large number: items you know well. Light bar: unlocked, dark bar: known. Tap a set to practise it.</p>
     <div id="indexBody"></div>
   </form>
@@ -103,18 +108,32 @@
 
 <dialog id="setDlg">
   <form method="dialog" class="dlg">
-    <div class="dlg-head"><h2>Settings</h2><button class="close" value="close" aria-label="Close">Close</button></div>
+    <div class="dlg-head"><h2>Settings</h2><button class="close" value="close" aria-label="Close" title="Close"><svg viewBox="0 0 16 16" width="16" height="16" aria-hidden="true"><path d="M4 4l8 8M12 4l-8 8"/></svg></button></div>
     <div class="midi-row" id="midiRow">
       <i class="dot" aria-hidden="true"></i>
       <div class="midi-text"><b>MIDI keyboard</b><span id="midiStatus">Not connected</span></div>
       <button type="button" class="pill" id="midiBtn">Connect</button>
     </div>
+    <label class="tog"><span>Key signature<small>Notes and chords come from this key’s scale. Progress is kept per key.</small></span>
+      <select id="keySel">
+        <option value="C">C major / A minor (none)</option>
+        <option value="G">G major / E minor (1♯)</option>
+        <option value="D">D major / B minor (2♯)</option>
+        <option value="A">A major / F♯ minor (3♯)</option>
+        <option value="E">E major / C♯ minor (4♯)</option>
+        <option value="F">F major / D minor (1♭)</option>
+        <option value="Bb">B♭ major / G minor (2♭)</option>
+        <option value="Eb">E♭ major / C minor (3♭)</option>
+        <option value="Ab">A♭ major / F minor (4♭)</option>
+      </select>
+    </label>
     <label class="tog"><input type="checkbox" data-set="dark"><span>Dark theme</span></label>
     <label class="tog"><input type="checkbox" data-set="sound"><span>Sound for on-screen keys</span></label>
     <label class="tog"><input type="checkbox" data-set="midiSound"><span>Sound for MIDI keyboard (turn off if your piano has speakers)</span></label>
     <label class="tog"><input type="checkbox" data-set="octave"><span>Require the exact octave</span></label>
-    <label class="tog"><input type="checkbox" data-set="acc"><span>Include sharps and flats (Notes and Intervals)</span></label>
+    <label class="tog"><input type="checkbox" data-set="acc"><span>Include sharps and flats (Notes and Intervals, key of C only)</span></label>
     <label class="tog"><input type="checkbox" data-set="labels"><span>Show names on every key</span></label>
+    <label class="tog"><input type="checkbox" data-set="freeNames"><span>Write note names under the notes in Free play</span></label>
     <label class="tog"><input type="checkbox" data-set="all"><span>Practise everything now (skip gradual unlocking)</span></label>
     <div class="data">
       <h3>Progress data</h3>
@@ -126,9 +145,11 @@
         <input type="file" id="importFile" accept="application/json" hidden>
       </div>
     </div>
+    <div class="foot"><p class="release" id="release"></p><a href="https://github.com/og2t/note-stuffer" target="_blank" rel="noopener">GitHub</a></div>
   </form>
 </dialog>
 
-<script src="app.js?v=6"></script>
+<script src="version.js?v=9"></script>
+<script src="app.js?v=9"></script>
 </body>
 </html>
