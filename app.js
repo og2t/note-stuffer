@@ -1151,6 +1151,15 @@ function analyse(ms, flats) {
   return { notes: main.notes, dir: main.dir, names };
 }
 
+const COMPOUND = ['octave', 'minor ninth', 'major ninth', 'minor tenth', 'major tenth', 'perfect eleventh', 'augmented eleventh',
+  'perfect twelfth', 'minor thirteenth', 'major thirteenth', 'minor fourteenth', 'major fourteenth'];
+function intervalName(span) {
+  if (span < 12) return INTERVALS[span];
+  if (span < 24) return COMPOUND[span - 12];
+  const k = Math.floor(span / 12);
+  return `${INTERVALS[span % 12] === 'unison' ? '' : INTERVALS[span % 12] + ' plus '}${k} octaves`;
+}
+
 // One line describing what was played: chord, interval or note
 function describe(ms, a) {
   if (!ms.length) return null;
@@ -1159,8 +1168,13 @@ function describe(ms, a) {
   const pcs = [...new Set(ms.map(m => m % 12))];
   const label = a.notes.map(nameOf).join('  ');
   const bass = Math.min(...ms) % 12;
-  if (pcs.length === 2) return { title: label, sub: INTERVALS[(pcs.find(p => p !== bass) - bass + 12) % 12] };
-  return { title: label, sub: pcs.length === 1 && ms.length > 1 ? 'octave' : '' };
+  if (pcs.length === 2) {
+    // Measured from the bass to the nearest note of the other pitch, so C4 + D5 is a ninth
+    const lo = Math.min(...ms), span = Math.min(...ms.filter(m => m % 12 !== bass)) - lo;
+    return { title: label, sub: intervalName(span) };
+  }
+  const k = Math.round((Math.max(...ms) - Math.min(...ms)) / 12);
+  return { title: label, sub: pcs.length === 1 && ms.length > 1 ? (k === 1 ? 'octave' : k === 2 ? 'two octaves' : `${k} octaves`) : '' };
 }
 
 // ---------- Free play: whatever you play is written on the staff ----------
