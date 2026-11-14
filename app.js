@@ -12,11 +12,11 @@ const nameOf = n => LETTERS[n.letter] + ACC_SYM[n.acc] + n.oct;
 const idName = n => LETTERS[n.letter] + (n.acc > 0 ? '#' : n.acc < 0 ? 'b' : '') + n.oct;
 
 const STAFF = { t: { top: 38, bottom: 30, mid: 34 }, b: { top: 26, bottom: 18, mid: 22 } };
-const RANGE = { t: [26, 42], b: [14, 30] };
+const RANGE = { t: [25, 42], b: [14, 30] };
 const ANCHOR = { t: 29.5, b: 22.5 };
 const staffFor = d => (d >= 28 ? 't' : 'b');
-// On the grand staff, middle C is also written on the ledger line above the bass staff
-const onStaff = (d, s, clef) => clef !== 'g' || staffFor(d) === s || (s === 'b' && d === 28);
+// On the grand staff, middle C is also written above the bass staff, and the treble reaches down to G3 below middle C
+const onStaff = (d, s, clef) => clef !== 'g' || staffFor(d) === s || (s === 'b' && d === 28) || (s === 't' && d >= RANGE.t[0]);
 
 // Skips E♯, B♯, C♭ and F♭, which beginners rarely meet
 const validAcc = (d, a) => {
@@ -1061,10 +1061,10 @@ function detectChords(ms) {
   let fits = rooted.length ? rooted : out;
   // Names that leave out the fifth only count when no complete chord fits
   if (fits.some(c => !c.no5)) fits = fits.filter(c => !c.no5);
-  // A plain triad above the bass reads best as that triad over the bass (Am/G, C/D), unless a complete
+  // A major or minor triad above the bass reads best as that triad over the bass (Am/G, C/D), unless a complete
   // chord sits on the bass; sus triads only count when nothing at all sits on the bass
   if (!rooted.some(c => !c.no5)) {
-    const triads = CHORDS.slice(0, rooted.length ? 4 : 6);
+    const triads = CHORDS.slice(0, 6).filter(([sym]) => sym === '' || sym === 'm' || (!rooted.length && sym.startsWith('sus')));
     // Lowest upper note first, so G♯ A♯ D♯ over G always picks the same root
     const upper = [...new Set(ms.filter(m => m !== Math.min(...ms)).sort((a, b) => a - b).map(m => m % 12))];
     if (!upper.includes(bass)) for (const root of upper) {
@@ -1082,6 +1082,44 @@ function detectChords(ms) {
 const STEP_OF = [0, 1, 1, 2, 2, 3, -1, 4, 5, 5, 6, 6];
 const stepFits = (from, to, semis) => { const st = ((to.letter - from.letter) % 7 + 7) % 7, w = STEP_OF[(semis % 12 + 12) % 12]; return w < 0 ? st === 3 || st === 4 : st === w; };
 
+// When no known chord fits: describe the notes from a root as quality, seventh, then extras (A♭maj7sus2, Cm(♭9)),
+// trying every note as root and keeping the shortest name, the bass first on a tie
+function fallbackChord(ms) {
+  const pcs = [...new Set(ms.map(m => m % 12))];
+  const bass = Math.min(...ms) % 12;
+  let best = null;
+  for (const root of pcs) {
+    const set = new Set(pcs.map(p => (p - root + 12) % 12));
+    const take = i => set.delete(i);
+    take(0);
+    const roles = [[0, 0]], words = [];
+    let sym = '', ext = '', cost = 0;
+    if (take(4)) { roles.push([4, 2]); words.push('major'); }
+    else if (take(3)) { roles.push([3, 2]); sym = 'm'; words.push('minor'); }
+    const sus = !roles.some(r => r[1] === 2) && (take(2) ? [2, 'sus2', 1] : take(5) ? [5, 'sus4', 3] : null);
+    if (sus) { roles.push([sus[0], sus[2]]); words.push(sus[1] === 'sus2' ? 'suspended 2nd' : 'suspended 4th'); }
+    if (!sus && !roles.some(r => r[1] === 2)) { cost += 2; words.push('no third'); }
+    let fifth = '';
+    if (take(7)) roles.push([7, 4]);
+    else if (take(6)) { roles.push([6, 4]); fifth = '♭5'; words.push('flat fifth'); cost++; }
+    else if (take(8)) { roles.push([8, 4]); fifth = '♯5'; words.push('sharp fifth'); cost++; }
+    else words.push('no fifth');
+    if (take(10)) { roles.push([10, 6]); ext = '7'; words.push('seventh'); }
+    else if (take(11)) { roles.push([11, 6]); ext = 'maj7'; words.push('major seventh'); }
+    else if (take(9)) { roles.push([9, 5]); ext = '6'; words.push('sixth'); }
+    // Whatever is left becomes an added tone on its own letter
+    const ADD = { 1: ['♭9', 1], 2: ['9', 1], 3: ['♯9', 1], 4: ['3', 2], 5: ['11', 3], 6: ['♯11', 3], 7: ['5', 4], 8: ['♭13', 5], 9: ['13', 5], 10: ['♭7', 6], 11: ['maj7', 6] };
+    const adds = [...set].sort((a, b) => a - b).map(i => { roles.push([i, ADD[i][1]]); cost += 1.5; return ADD[i][0]; });
+    const name = sym + ext + (sus ? sus[1] : '') + fifth + adds.map(a => `(${a})`).join('');
+    cost += root === bass ? 0 : 1;
+    roles.sort((a, b) => a[0] - b[0]);
+    const c = { root, bass, sym: name, long: words.concat(adds.map(a => `added ${a}`)).join(', '), iv: roles.map(r => r[0]), deg: roles.map(r => r[1]),
+      up: (bass - root + 12) % 12, over: false, fallback: true, cost };
+    if (!best || cost < best.cost) best = c;
+  }
+  return best;
+}
+
 // Spells one note on a given letter; null when that would need more than a double sharp or flat
 function onLetter(m, L) {
   const acc = ((m % 12 - SEMI[L] + 18) % 12) - 6;
@@ -1097,7 +1135,7 @@ function spellAs(c, ms, flats) {
   for (const [rL, rAcc] of cands) {
     let notes = ms.map(m => {
       const k = c.iv.indexOf((m % 12 - c.root + 12) % 12);
-      return k < 0 ? undefined : onLetter(m, (rL + DEGREES[c.sym][k]) % 7);
+      return k < 0 ? undefined : onLetter(m, (rL + (c.deg || DEGREES[c.sym])[k]) % 7);
     });
     if (notes.some(n => n === null)) continue;
     // A bass outside the chord is spelled by its interval from the root (B♭ under C is a 7th), on a letter the chord leaves free
@@ -1124,6 +1162,7 @@ const pcLabel = n => LETTERS[n.letter] + ACC_SYM[n.acc];
 // Everything Free play needs about what was played: spelled notes, chord names best first, spelling direction
 function analyse(ms, flats) {
   const found = detectChords(ms);
+  if (!found.length && new Set(ms.map(m => m % 12)).size >= 3) found.push(fallbackChord(ms));
   const main = found.length ? spellAs(found[0], ms, flats) : null;
   if (!main) {
     let f = chordFlats(ms, flats);
@@ -1141,11 +1180,17 @@ function analyse(ms, flats) {
     if (!sp) return null;
     const at = pc => pcLabel(sp.notes[ms.findIndex(m => m % 12 === pc)]);
     const root = at(c.root), bass = at(c.bass);
-    const inv = c.over || !c.up ? '' : [3, 4].includes(c.up) ? 'first inversion'
+    // An added 9th tucked inside the chord (within an octave of the root) is an added 2nd
+    let shape = c.sym, long = c.long;
+    if (/add9/.test(shape) && ms.filter(m => (m - c.root + 12) % 12 === 2).every(m => ms.some(r => r % 12 === c.root && m > r && m - r < 12))) {
+      shape = shape.replace('add9', 'add2'); long = long.replace('added ninth', 'added second');
+    }
+    const inv = c.fallback || c.over || !c.up ? '' : [3, 4].includes(c.up) ? 'first inversion'
       : [6, 7, 8].includes(c.up) ? 'second inversion' : [9, 10, 11].includes(c.up) ? 'third inversion' : `${bass} in the bass`;
     return {
-      sym: root + c.sym + (c.up ? '/' + bass : ''),
-      long: c.over ? `${root} ${c.long} over ${bass}` : `${root} ${c.long}${c.no5 ? ' (no fifth)' : ''}`, inv,
+      sym: root + shape + (c.up ? '/' + bass : ''),
+      long: c.over ? `${root} ${long} over ${bass}` : c.fallback ? `${root}: ${long}${c.up ? `, ${bass} in the bass` : ''}`
+        : `${root} ${long}${c.no5 ? ' (no fifth)' : ''}`, inv,
     };
   }).filter(Boolean).filter((c, i, a) => a.findIndex(o => o.sym === c.sym) === i);
   return { notes: main.notes, dir: main.dir, names };
