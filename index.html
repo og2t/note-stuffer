@@ -9,7 +9,7 @@
 <link rel="preconnect" href="https://fonts.googleapis.com">
 <link rel="preconnect" href="https://fonts.gstatic.com" crossorigin>
 <link href="https://fonts.googleapis.com/css2?family=Geist:wght@400;500;600&family=Noto+Music&display=swap" rel="stylesheet">
-<link rel="stylesheet" href="style.css?v=12">
+<link rel="stylesheet" href="style.css?v=13">
 </head>
 <body>
 <header class="bar">
@@ -136,6 +136,11 @@
     <label class="tog"><input type="checkbox" data-set="freeNames"><span>Write note names under the notes in Free play</span></label>
     <label class="tog"><input type="checkbox" data-set="all"><span>Practise everything now (skip gradual unlocking)</span></label>
     <div class="data">
+      <h3>Unlocking</h3>
+      <p class="legend">When new items join each set. Saved for this user in this browser. <button type="button" class="link" id="rulesReset">Reset to defaults</button></p>
+      <table class="rules" id="rulesTable"></table>
+    </div>
+    <div class="data">
       <h3>Progress data</h3>
       <p class="legend" id="dataNote">Saved in this browser only. Export to back up or to move it to another device.</p>
       <div class="row">
@@ -149,7 +154,7 @@
   </form>
 </dialog>
 
-<script src="version.js?v=12"></script>
-<script src="app.js?v=12"></script>
+<script src="version.js?v=13"></script>
+<script src="app.js?v=13"></script>
 </body>
 </html>

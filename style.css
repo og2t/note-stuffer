@@ -425,6 +425,13 @@ dialog::backdrop { background: rgba(18, 19, 24, .32); backdrop-filter: blur(3px)
 .data h3 { font-size: 14px; font-weight: 600; margin: 0; }
 .data .legend { margin: 4px 0 0; }
 .data .row { margin-top: 10px; padding-top: 0; border-top: 0; }
+.rules { width: 100%; margin-top: 10px; border-collapse: collapse; font-size: 13px; }
+.rules th { font-weight: 500; color: var(--grey); text-align: left; padding: 4px 6px 4px 0; white-space: nowrap; }
+.rules thead th { text-align: center; }
+.rules td { padding: 3px; text-align: center; }
+.rules input, .rules select { width: 100%; max-width: 92px; font: inherit; color: var(--ink); background: var(--track); border: 0; border-radius: 8px; padding: 6px 8px; text-align: center; }
+.rules select { -webkit-appearance: none; appearance: none; cursor: pointer; }
+.link { color: var(--accent); font-size: inherit; text-decoration: underline; text-underline-offset: 2px; }
 
 /* Round break */
 .round .lvl-badge.rest { background: linear-gradient(135deg, #7c8696, #b6bdc8); box-shadow: 0 8px 22px rgba(80, 90, 110, .25); }

@@ -358,8 +358,19 @@ async function backfillStreaks(id) {
 }
 
 // ---------- Spaced-repetition engine ----------
-const INITIAL = { notes: 4, intervals: 4, chords: 3, ext: 3 };
-const STEP = { notes: 2, intervals: 3, chords: 2, ext: 2 };
+// Unlocking per set: items to start with, items each unlock adds, right answers in a row and speed needed.
+// Chord players are assumed to read notes already, so chords ask for less. Each user can change these in Settings
+const RULE_DEFAULTS = {
+  notes: { start: 4, step: 2, streak: 5, speed: 'normal' }, intervals: { start: 4, step: 3, streak: 5, speed: 'normal' },
+  chords: { start: 6, step: 3, streak: 2, speed: 'relaxed' }, ext: { start: 4, step: 3, streak: 2, speed: 'relaxed' },
+};
+// Average and weakest recall needed for each speed
+const SPEEDS = { relaxed: { avg: 0.5, min: 0.3 }, normal: { avg: 0.7, min: 0.45 }, strict: { avg: 0.8, min: 0.6 } };
+function rules(mode = S.settings.mode) {
+  const r = { ...(RULE_DEFAULTS[mode] || RULE_DEFAULTS.notes), ...(S.settings.rules?.[mode] || {}) };
+  return { ...r, ...(SPEEDS[r.speed] || SPEEDS.normal) };
+}
+const rule = () => rules();
 const DAY = 864e5;
 
 const keyFor = (mode, clef) => inKeyMode()
@@ -383,7 +394,7 @@ function genItems(mode, clef) {
   return gen[mode]()
     .sort((a, b) => a.order - b.order);
 }
-const frontier = (mode, clef) => S.unlock[keyFor(mode, clef)] ?? INITIAL[mode];
+const frontier = (mode, clef) => Math.max(S.unlock[keyFor(mode, clef)] ?? 0, rules(mode).start);
 
 // Unlocked items: everything before the frontier, plus items already learned in another set
 function poolOf(mode, clef, list) {
@@ -410,8 +421,6 @@ let round = newRound(), lastRound = null, roundNo = 0;
 // Untimed answers (after a pause) count for accuracy only; their time is kept out of all speed stats
 const UNTIMED_Q = 0.5;
 
-// Right answers in a row needed on every unlocked item before new ones appear
-const STREAK = 5;
 
 function record(item, ok, rt, wrong = null, untimed = false) {
   const timed = ok && !untimed;
@@ -469,7 +478,7 @@ function pick() {
   const weights = pool.map(it => {
     if (recent.has(it.id)) return 0;
     const c = S.cards[it.id];
-    return c && (c.streak ?? 0) >= STREAK ? (1 - eff(c)) ** 2 + 0.04 : 1.2;
+    return c && (c.streak ?? 0) >= rule().streak ? (1 - eff(c)) ** 2 + 0.04 : 1.2;
   });
   let r = Math.random() * weights.reduce((a, b) => a + b, 0);
   for (let i = 0; i < pool.length; i++) { r -= weights[i]; if (r <= 0) return pool[i]; }
@@ -477,10 +486,11 @@ function pick() {
 }
 
 // Progress toward the next unlock: mean of the three conditions, each capped at 1
-function unlockStatus(p, total) {
+function unlockStatus(p, total, mode = S.settings.mode) {
   if (S.settings.all || p.length >= total) return null;
   const cs = p.map(i => S.cards[i.id]);
   const effs = cs.map(eff);
+  const { streak: STREAK, avg: AVG, min: MIN } = rules(mode);
   const runs = cs.map(c => Math.min(STREAK, c?.streak ?? 0));
   const pending = runs.filter(r => r < STREAK).length;
   const lone = runs.findIndex(r => r < STREAK), left = STREAK - runs[lone];
@@ -490,8 +500,8 @@ function unlockStatus(p, total) {
     [runs.reduce((a, r) => a + r, 0) / (STREAK * p.length), pending === 1
       ? `play ${p[lone].short} right ${left} more ${left === 1 ? 'time' : 'times'} in a row`
       : `play ${pending} items right ${STREAK} times in a row`],
-    [avg / 0.7, 'answer a little faster overall'],
-    [effs[weakest] / 0.45, `practise ${p[weakest].short}`],
+    [avg / AVG, 'answer a little faster overall'],
+    [effs[weakest] / MIN, `practise ${p[weakest].short}`],
   ].map(([f, hint]) => [Math.min(1, f), hint]);
   const frac = parts.reduce((a, [f]) => a + f, 0) / parts.length;
   const blocker = parts.reduce((a, b) => (b[0] < a[0] ? b : a));
@@ -504,7 +514,7 @@ function maybeUnlock() {
   const { mode, clef } = S.settings;
   const have = new Set(pool.map(i => i.id));
   let k = frontier(mode, clef), fresh = [];
-  while (k < items.length && fresh.length < STEP[mode]) {
+  while (k < items.length && fresh.length < rules(mode).step) {
     if (!have.has(items[k].id)) fresh.push(items[k]);
     k++;
   }
@@ -1326,7 +1336,7 @@ function freeShow() {
 
 // ---------- Level-up break ----------
 let levelOpenedAt = 0;
-const levelOf = () => 1 + Math.ceil((frontier(S.settings.mode, S.settings.clef) - INITIAL[S.settings.mode]) / STEP[S.settings.mode]);
+const levelOf = () => 1 + Math.ceil((frontier(S.settings.mode, S.settings.clef) - rules().start) / rules().step);
 const NEW_WORD = { notes: ['note', 'notes'], intervals: ['interval', 'intervals'], chords: ['chord', 'chords'], ext: ['chord', 'chords'] };
 
 function showLevelUp(fresh) {
@@ -1478,7 +1488,7 @@ function renderNext() {
   }
   const pct = Math.floor(st.frac * 100);
   el.innerHTML = `<span class="nbar"><i style="width:${pct}%"></i></span>`
-    + `${pct}% of the way to ${STEP[S.settings.mode]} new ${UNIT[S.settings.mode]}. Next step: ${st.hint}.`;
+    + `${pct}% of the way to ${rules().step} new ${UNIT[S.settings.mode]}. Next step: ${st.hint}.`;
 }
 
 function renderToday() {
@@ -1519,6 +1529,7 @@ $('#setBtn').addEventListener('click', () => {
   $('#dataNote').textContent = `${currentUser().name}’s progress is saved in this browser only. Export to back up or to move it to another device. Import and Reset replace it.`;
   $('#release').textContent = `NoteStuffer ${RELEASE}`;
   $('#keySel').value = S.settings.key || 'C';
+  renderRules();
   $('#setDlg').showModal();
 });
 document.querySelectorAll('[data-set]').forEach(i => i.addEventListener('change', () => {
@@ -1529,6 +1540,28 @@ document.querySelectorAll('[data-set]').forEach(i => i.addEventListener('change'
   if (i.dataset.set === 'dark') applyTheme();
   if (i.dataset.set === 'freeNames') freeShow();
 }));
+
+// Unlocking table in Settings: one column per set
+const RULE_ROWS = [['start', 'Start with', 1, 20], ['step', 'New per unlock', 1, 10], ['streak', 'Right in a row', 1, 10], ['speed', 'Speed']];
+function renderRules() {
+  const sets = [['notes', 'Notes'], ['intervals', 'Intervals'], ['chords', 'Chords'], ['ext', 'Extended']];
+  $('#rulesTable').innerHTML = '<thead><tr><th></th>' + sets.map(([, n]) => `<th>${n}</th>`).join('') + '</tr></thead><tbody>'
+    + RULE_ROWS.map(([k, label, lo, hi]) => `<tr><th>${label}</th>` + sets.map(([m]) => {
+      const v = rules(m)[k];
+      return `<td>${k === 'speed'
+        ? `<select data-rule="${m}.${k}">${Object.keys(SPEEDS).map(o => `<option value="${o}"${o === v ? ' selected' : ''}>${o[0].toUpperCase() + o.slice(1)}</option>`).join('')}</select>`
+        : `<input type="number" inputmode="numeric" min="${lo}" max="${hi}" value="${v}" data-rule="${m}.${k}">`}</td>`;
+    }).join('') + '</tr>').join('') + '</tbody>';
+}
+$('#rulesTable').addEventListener('change', e => {
+  const el = e.target.closest('[data-rule]'); if (!el) return;
+  const [m, k] = el.dataset.rule.split('.');
+  const row = RULE_ROWS.find(r => r[0] === k);
+  const v = k === 'speed' ? el.value : Math.min(row[3], Math.max(row[2], Math.round(+el.value) || row[2]));
+  S.settings.rules = { ...(S.settings.rules || {}), [m]: { ...(S.settings.rules?.[m] || {}), [k]: v } };
+  save(); renderRules(); rebuild();
+});
+$('#rulesReset').addEventListener('click', () => { delete S.settings.rules; save(); renderRules(); rebuild(); });
 
 $('#keySel').addEventListener('change', e => {
   S.settings.key = e.target.value; save(); syncHeader(); rebuild();
@@ -1547,7 +1580,7 @@ $('#indexBtn').addEventListener('click', () => {
       const p = poolOf(mode, clef, list);
       const k = p.length;
       const known = list.filter(i => eff(S.cards[i.id]) >= 0.7).length;
-      const st = unlockStatus(p, list.length);
+      const st = unlockStatus(p, list.length, mode);
       const here = mode === S.settings.mode && clef === S.settings.clef;
       const w = n => ((100 * n) / list.length).toFixed(1);
       html += `<td><button type="button" class="cell${here ? ' here' : ''}" data-mode="${mode}" data-clef="${clef}">`
